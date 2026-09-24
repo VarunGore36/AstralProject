@@ -30,8 +30,9 @@ A rigorous "this has no edge" is a successful result here.
 | Venue, market type, symbol, channel identifiers | DONE |
 | `CaptureRecord`, `CaptureManifest`, `CaptureFlags` | DONE |
 | `astra-record init` capture layout | DONE |
+| Chunked record store with SHA-256 integrity index | DONE |
 | WebSocket ingestion | NOT IMPLEMENTED |
-| Raw immutable frame storage | NOT IMPLEMENTED |
+| Live raw frame capture | NOT IMPLEMENTED |
 | Order-book reconstruction | NOT IMPLEMENTED |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -54,11 +55,14 @@ flowchart LR
 | Stage | State |
 | --- | --- |
 | Exchange WebSocket | NOT IMPLEMENTED |
-| Raw immutable frames | NOT IMPLEMENTED |
-| Compressed chunks | NOT IMPLEMENTED |
+| Raw immutable frames | PARTIALLY IMPLEMENTED |
+| Compressed chunks | DONE |
 | Normalised Parquet | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |
 | Research results | NOT IMPLEMENTED |
+
+Partially implemented means records can be written, verified and read back
+today, but nothing produces them from a live venue feed yet.
 
 ## Repository layout
 
@@ -109,10 +113,28 @@ Floating point is for derived analytics only, through
 capture/
 ├── manifest.json
 └── frames/
+    ├── index.json
+    ├── chunk-000000.zst
+    ├── chunk-000001.zst
+    └── ...
 ```
 
 `manifest.json` records the schema version, a generated capture id, the
 creation time, the instrument, the channel and the number of frames written.
+
+`index.json` records, for every chunk: its name, the first and last sequence
+number it holds, the record count, the byte size and the SHA-256 of the
+compressed file. Reading a capture verifies every chunk against that hash
+before decoding it, so silent corruption is detected rather than absorbed.
+
+## Chunk format
+
+A chunk is a zstd-compressed stream of length-prefixed records: a four byte
+little-endian length followed by the encoded record. Payload bytes are stored
+exactly as received and are never re-encoded, truncated or interpreted.
+
+Chunks roll after a fixed number of records. A writer reopens an existing
+capture and continues the chunk sequence rather than overwriting it.
 
 ## Quickstart
 
