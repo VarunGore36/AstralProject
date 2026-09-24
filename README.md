@@ -6,10 +6,12 @@ realistic fills, and reproduce that answer later.
 
 ## Status
 
-- **Done** — design and strategy. No code yet.
-- **Working on** — `astra-record`: lossless market-data capture for
+- **Done** — repository base: Rust workspace, core types (fixed-point decimals,
+  nanosecond timestamps, venue and instrument identifiers, capture records),
+  `astra-record init`.
+- **Working on** — lossless market-data capture in `astra-record` for
   {Binance, Bybit} × {BTC/USDT, ETH/USDT} × {spot, USDT-perp},
-  raw immutable events → normalized Parquet.
+  raw immutable frames → compressed chunks.
 - **Next (one thing)** — rebuild L2 order books from captured data and validate
   them against exchange-published checksums.
 

@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["crates/astra-types", "crates/astra-record"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/VarunGore36/AstralProject"
+rust-version = "1.85"
+
+[workspace.dependencies]
+astra-types = { path = "crates/astra-types" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
