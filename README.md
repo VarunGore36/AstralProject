@@ -1,8 +1,13 @@
 # Astral Project
 
-An open, reproducible measurement layer for crypto markets — so you can tell
-whether a trading idea actually survives fees, slippage, latency, liquidity and
-realistic fills, and reproduce that answer later.
+**An open, reproducible measurement layer for crypto markets.**
+
+Astra makes it possible to determine whether a trading idea actually survives
+fees, slippage, latency, liquidity and realistic fills — and to reproduce that
+determination later.
+
+Historical research and simulation only. No execution, no trading, no capital.
+A rigorous "this has no edge" is a successful result here.
 
 ## Status
 
@@ -15,10 +20,128 @@ realistic fills, and reproduce that answer later.
 - **Next (one thing)** — rebuild L2 order books from captured data and validate
   them against exchange-published checksums.
 
-## Scope
+## What exists today
 
-Historical research and simulation only. No execution, no trading, no capital.
-A rigorous "this has no edge" is a successful result here.
+| Component | State |
+| --- | --- |
+| Workspace, build, tests, lint | DONE |
+| `Fixed` fixed-point decimal | DONE |
+| `Timestamp` nanosecond clock value | DONE |
+| Venue, market type, symbol, channel identifiers | DONE |
+| `CaptureRecord`, `CaptureManifest`, `CaptureFlags` | DONE |
+| `astra-record init` capture layout | DONE |
+| WebSocket ingestion | NOT IMPLEMENTED |
+| Raw immutable frame storage | NOT IMPLEMENTED |
+| Order-book reconstruction | NOT IMPLEMENTED |
+| Exchange checksum validation | NOT IMPLEMENTED |
+| Normalised Parquet datasets | NOT IMPLEMENTED |
+| Deterministic replay | NOT IMPLEMENTED |
+| Cost and execution model | NOT IMPLEMENTED |
+
+Nothing above is a stub dressed up as finished. The gaps are the roadmap.
+
+## Data flow
+
+```mermaid
+flowchart LR
+    A[Exchange WebSocket] --> B[raw immutable frames]
+    B --> C[compressed chunks]
+    C --> D[normalised Parquet]
+    D --> E[deterministic replay]
+    E --> F[research results]
+```
+
+| Stage | State |
+| --- | --- |
+| Exchange WebSocket | NOT IMPLEMENTED |
+| Raw immutable frames | NOT IMPLEMENTED |
+| Compressed chunks | NOT IMPLEMENTED |
+| Normalised Parquet | NOT IMPLEMENTED |
+| Deterministic replay | NOT IMPLEMENTED |
+| Research results | NOT IMPLEMENTED |
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `crates/astra-types` | The schema: decimal and timestamp primitives, identifiers, capture records |
+| `crates/astra-record` | Lossless market-data capture |
+| `ROADMAP.md` | Gates with measurable definitions of done |
+
+## Data model
+
+| Type | Representation | Rule |
+| --- | --- | --- |
+| `Fixed` | `i128` scaled by 10^8 | decimal strings in, canonical eight places out; more than eight places is rejected rather than silently rounded; arithmetic rounds half away from zero |
+| `Timestamp` | `i64` nanoseconds since epoch | ordered, serialised as raw nanoseconds |
+| `Symbol` | validated `BASE/QUOTE` | uppercase ASCII alphanumeric with `.`, `_`, `-` |
+| `Venue` | `binance`, `bybit` | parsed case-insensitively, stored canonically |
+| `MarketType` | `spot`, `perp_usdt` | |
+| `Channel` | `book_diff`, `book_snapshot`, `trade`, `book_ticker`, `funding`, `open_interest`, `liquidation` | |
+
+Floating point is for derived analytics only, through
+`to_f64_for_analytics`. Prices, quantities, fees and PnL never touch it.
+
+## Capture records
+
+| Field | Meaning |
+| --- | --- |
+| `seq` | position in the capture stream |
+| `instrument` | venue + market type + symbol |
+| `channel` | kind of market data |
+| `ts_socket` | when the frame was read locally |
+| `ts_exchange` | timestamp supplied by the venue, when present |
+| `payload` | raw bytes, untouched |
+| `flags` | capture quality bits |
+
+| Flag | Meaning |
+| --- | --- |
+| `SEQUENCE_GAP` | the venue stream skipped a sequence number |
+| `DUPLICATE` | the frame repeats one already recorded |
+| `RESYNC` | the capture resynchronised after a gap |
+| `STALE` | the data was too old to trust at capture time |
+| `UNRELIABLE` | the surrounding window cannot be trusted |
+| `TRUNCATED` | the payload was cut short |
+
+## Capture layout
+
+```text
+capture/
+├── manifest.json
+└── frames/
+```
+
+`manifest.json` records the schema version, a generated capture id, the
+creation time, the instrument, the channel and the number of frames written.
+
+## Quickstart
+
+```sh
+cargo build --workspace
+cargo test --workspace
+
+cargo run -p astra-record -- init \
+  --output ./capture \
+  --venue binance \
+  --market spot \
+  --symbol BTC/USDT \
+  --channel book_diff
+```
+
+## Working rules
+
+- Fixed-point integers for all financial arithmetic.
+- Never silently drop data. Lossy paths emit explicit gap events.
+- Determinism first: replaying a captured period must be byte identical.
+- Measure before optimising. Every optimisation needs a benchmark.
+- Anything touching prices, quantities, fees, PnL or fills requires tests.
+- A stub is labelled NOT IMPLEMENTED, SIMULATED or MOCKED. Never reported as done.
+
+## What this is not
+
+Not a trading bot. Not a signal service. Not a claim about returns. It is
+infrastructure for deciding whether a claim about markets survives contact with
+realistic costs.
 
 ## License
 
