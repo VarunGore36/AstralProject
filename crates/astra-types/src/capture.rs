@@ -68,6 +68,7 @@ pub struct CaptureManifest {
     pub instrument: Instrument,
     pub channel: Channel,
     pub frames_written: u64,
+    pub stop_reason: Option<String>,
 }
 
 #[cfg(test)]
@@ -122,6 +123,7 @@ mod tests {
             ),
             channel: Channel::Funding,
             frames_written: 0,
+            stop_reason: Some("not_started".to_owned()),
         };
         let json = serde_json::to_string(&manifest).unwrap();
         let decoded: CaptureManifest = serde_json::from_str(&json).unwrap();

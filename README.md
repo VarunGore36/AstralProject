@@ -11,12 +11,11 @@ A rigorous "this has no edge" is a successful result here.
 
 ## Status
 
-- **Done** — repository base: Rust workspace, core types (fixed-point decimals,
-  nanosecond timestamps, venue and instrument identifiers, capture records),
-  `astra-record init`.
-- **Working on** — lossless market-data capture in `astra-record` for
-  {Binance, Bybit} × {BTC/USDT, ETH/USDT} × {spot, USDT-perp},
-  raw immutable frames → compressed chunks.
+- **Done** — core types, chunked capture store with SHA-256 integrity index,
+  `astra-record init`, `astra-record capture` against a real WebSocket feed for
+  Binance book-diff.
+- **Working on** — sequence tracking, reconnect and resync, a second venue,
+  additional channels.
 - **Next (one thing)** — rebuild L2 order books from captured data and validate
   them against exchange-published checksums.
 
@@ -31,8 +30,8 @@ A rigorous "this has no edge" is a successful result here.
 | `CaptureRecord`, `CaptureManifest`, `CaptureFlags` | DONE |
 | `astra-record init` capture layout | DONE |
 | Chunked record store with SHA-256 integrity index | DONE |
-| WebSocket ingestion | NOT IMPLEMENTED |
-| Live raw frame capture | NOT IMPLEMENTED |
+| WebSocket ingestion | PARTIALLY IMPLEMENTED |
+| Live raw frame capture | PARTIALLY IMPLEMENTED |
 | Order-book reconstruction | NOT IMPLEMENTED |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -54,15 +53,16 @@ flowchart LR
 
 | Stage | State |
 | --- | --- |
-| Exchange WebSocket | NOT IMPLEMENTED |
+| Exchange WebSocket | PARTIALLY IMPLEMENTED |
 | Raw immutable frames | PARTIALLY IMPLEMENTED |
 | Compressed chunks | DONE |
 | Normalised Parquet | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |
 | Research results | NOT IMPLEMENTED |
 
-Partially implemented means records can be written, verified and read back
-today, but nothing produces them from a live venue feed yet.
+Partially implemented means one venue, one channel: frames can be captured from
+a live WebSocket, stamped, verified and read back today. The rest of the wedge
+is still open.
 
 ## Repository layout
 
@@ -120,7 +120,9 @@ capture/
 ```
 
 `manifest.json` records the schema version, a generated capture id, the
-creation time, the instrument, the channel and the number of frames written.
+creation time, the instrument, the channel, the number of frames written and
+the reason capture stopped. A capture that ended because the venue dropped the
+connection says so; it never looks like a clean finish.
 
 `index.json` records, for every chunk: its name, the first and last sequence
 number it holds, the record count, the byte size and the SHA-256 of the
@@ -149,6 +151,41 @@ cargo run -p astra-record -- init \
   --symbol BTC/USDT \
   --channel book_diff
 ```
+
+Capture from a live feed:
+
+```sh
+cargo run -p astra-record -- capture \
+  --output ./capture \
+  --venue binance \
+  --market spot \
+  --symbol BTC/USDT \
+  --channel book_diff \
+  --duration-secs 3600
+```
+
+The run stops at the end of the duration, at `--max-frames`, on Ctrl-C or when
+the venue closes the connection, and records which of those happened in the
+manifest. `--url` overrides the derived feed for local testing.
+
+## Feeds
+
+| Venue | Market | Channel | Stream |
+| --- | --- | --- | --- |
+| binance | spot | book_diff | `wss://stream.binance.com:9443/ws/<symbol>@depth@100ms` |
+| binance | perp_usdt | book_diff | `wss://fstream.binance.com/ws/<symbol>@depth@100ms` |
+
+Every other combination is refused with an explicit not-implemented error rather
+than silently falling back to something else.
+
+## Known limitations
+
+- `ts_exchange` is not populated at capture time. Reading the venue timestamp
+  out of the payload is normalisation work and happens later.
+- Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
+  capture manifest and every closed chunk survive; the partial one does not.
+- One venue and one channel are connected. Sequence tracking, reconnect and
+  resync are not implemented yet, so a dropped connection ends the capture.
 
 ## Working rules
 

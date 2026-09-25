@@ -254,6 +254,12 @@ impl Instrument {
     }
 }
 
+impl fmt::Display for Instrument {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {} {}", self.venue, self.market_type, self.symbol)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
