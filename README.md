@@ -187,6 +187,57 @@ than silently falling back to something else.
 - One venue and one channel are connected. Sequence tracking, reconnect and
   resync are not implemented yet, so a dropped connection ends the capture.
 
+## Verification record
+
+What has actually been checked, and what has not. Nothing here is inferred from
+the fact that the code compiles.
+
+| Claim | Evidence | Status |
+| --- | --- | --- |
+| Value types round-trip exactly | unit tests, `cargo test --workspace` | VERIFIED |
+| Chunk store round-trips records byte for byte | unit tests | VERIFIED |
+| Chunk store detects a corrupted chunk | test flips one byte and expects an integrity error | VERIFIED |
+| Integrity hashes are truthful | recorded SHA-256 cross-checked against the system `sha256sum` | VERIFIED |
+| Capture writes frames from a real WebSocket | end-to-end run: handshake, five frames, manifest and index on disk | VERIFIED |
+| Feed URLs for Binance spot and perp | unit tests | VERIFIED |
+| Live Binance connection | none | NOT VERIFIED |
+| Losslessness over a long soak | none | NOT VERIFIED |
+| Order-book reconstruction | none | NOT IMPLEMENTED |
+
+## Failures encountered
+
+Recorded rather than tidied away.
+
+**The TLS path was completely broken.** rustls panicked on the first secure
+connection because no crypto provider was installed — `tungstenite` enables
+rustls without a backend, so every `wss://` connection would have crashed on
+startup. The test suite did not catch it, because the test server speaks plain
+`ws://` and never touches the TLS stack. It surfaced on the first attempt to run
+against a real feed. Fixed by enabling the `ring` backend and installing the
+provider explicitly.
+
+**A test failed because its fixture was wrong.** The duration-limit test used a
+server that closed the connection after 50 ms, so the close beat the limit and
+the capture reported the wrong stop reason. The capture loop was correct; the
+harness was not.
+
+**Live Binance capture is unverified.** The build environment intercepts TLS to
+`binance.com` through a Fortinet firewall: the certificate presented for
+`*.binance.com` is issued by `Fortinet; Certificate Authority`, not a public
+authority, and the endpoint answers 403. rustls correctly refuses with
+`invalid peer certificate: UnknownIssuer`. That is an environment constraint,
+not a result about the code. It also means the claim "this captures from
+Binance" is still open until it runs on a clean network:
+
+```sh
+cargo run -p astra-record -- capture --output ./capture \
+  --venue binance --market spot --symbol BTC/USDT --channel book_diff \
+  --duration-secs 60
+```
+
+A `UnknownIssuer` error there too means something on that network is doing TLS
+inspection, and it will break any rustls or Go client, not just this one.
+
 ## Working rules
 
 - Fixed-point integers for all financial arithmetic.
@@ -195,6 +246,8 @@ than silently falling back to something else.
 - Measure before optimising. Every optimisation needs a benchmark.
 - Anything touching prices, quantities, fees, PnL or fills requires tests.
 - A stub is labelled NOT IMPLEMENTED, SIMULATED or MOCKED. Never reported as done.
+- Failures, partial results and unverified claims are recorded in this README,
+  not hidden. A gap is stated as a gap.
 
 ## What this is not
 
