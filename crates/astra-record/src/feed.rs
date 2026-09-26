@@ -1,4 +1,4 @@
-use astra_book::{BookDiff, Level};
+use astra_book::{BookDiff, BookSnapshot, Level, UpdateSpan};
 use astra_types::{Channel, Fixed, Instrument, MarketType, Venue};
 use thiserror::Error;
 
@@ -24,12 +24,6 @@ pub fn stream_url(instrument: &Instrument, channel: Channel) -> Result<String, F
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct UpdateSpan {
-    pub first: u64,
-    pub last: u64,
-}
-
 pub fn update_span(venue: Venue, channel: Channel, payload: &[u8]) -> Option<UpdateSpan> {
     match (venue, channel) {
         (Venue::Binance, Channel::BookDiff) => binance_depth_span(payload),
@@ -47,9 +41,32 @@ struct BinanceDepthEvent {
 
 fn binance_depth_span(payload: &[u8]) -> Option<UpdateSpan> {
     let event: BinanceDepthEvent = serde_json::from_slice(payload).ok()?;
-    Some(UpdateSpan {
-        first: event.first_update_id,
-        last: event.last_update_id,
+    Some(UpdateSpan::new(event.first_update_id, event.last_update_id))
+}
+
+pub fn book_snapshot(venue: Venue, channel: Channel, payload: &[u8]) -> Option<BookSnapshot> {
+    match (venue, channel) {
+        (Venue::Binance, Channel::BookSnapshot) => binance_book_snapshot(payload),
+        _ => None,
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct BinanceBookSnapshot {
+    #[serde(rename = "lastUpdateId")]
+    last_update_id: u64,
+    #[serde(rename = "bids")]
+    bids: Vec<(Fixed, Fixed)>,
+    #[serde(rename = "asks")]
+    asks: Vec<(Fixed, Fixed)>,
+}
+
+fn binance_book_snapshot(payload: &[u8]) -> Option<BookSnapshot> {
+    let event: BinanceBookSnapshot = serde_json::from_slice(payload).ok()?;
+    Some(BookSnapshot {
+        last_update_id: event.last_update_id,
+        bids: to_levels(event.bids),
+        asks: to_levels(event.asks),
     })
 }
 
@@ -92,6 +109,7 @@ fn binance_stream_url(instrument: &Instrument, channel: Channel) -> Result<Strin
     let symbol = stream_symbol(instrument)?;
     let stream = match channel {
         Channel::BookDiff => format!("{symbol}@depth@100ms"),
+        Channel::BookSnapshot => format!("{symbol}@depth10@100ms"),
         _ => return Err(not_implemented(instrument, channel)),
     };
 

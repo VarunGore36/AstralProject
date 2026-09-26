@@ -12,8 +12,10 @@ use astra_types::{
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket, connect};
 
+use astra_book::UpdateSpan;
+
 use crate::error::RecordError;
-use crate::feed::{self, UpdateSpan};
+use crate::feed;
 use crate::store::ChunkWriter;
 
 pub const MANIFEST_FILE: &str = "manifest.json";

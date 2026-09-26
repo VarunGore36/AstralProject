@@ -14,11 +14,13 @@ A rigorous "this has no edge" is a successful result here.
 - **Done** — core types, chunked capture store with SHA-256 integrity index,
   `astra-record init`, `astra-record capture` verified against the live Binance
   book-diff feed, reconnect with explicit gap records, venue update-ID
-  continuity checking, L2 order-book reconstruction from captured frames.
-- **Working on** — validating reconstruction against a venue-published
+  continuity checking, L2 order-book reconstruction from captured frames,
+  snapshot bootstrap verified against a live venue snapshot.
+- **Working on** — top-of-book comparison against an independent venue
   reference, a second venue, additional channels.
-- **Next (one thing)** — bootstrap from a depth snapshot so the book is complete
-  rather than partial, then compare it against a venue-published top-of-book.
+- **Next (one thing)** — compare the reconstructed book against a
+  venue-published reference taken at the same update ID, to close the Gate 1
+  correctness claim.
 
 ## What exists today
 
@@ -38,7 +40,9 @@ A rigorous "this has no edge" is a successful result here.
 | Channels other than `book_diff` | NOT IMPLEMENTED |
 | Order-book state and level updates | DONE |
 | Reconstruction from captured frames | DONE |
-| Snapshot bootstrap for a complete book | NOT IMPLEMENTED |
+| Snapshot bootstrap for a complete book | DONE |
+| Bootstrap verified against a live venue snapshot | DONE |
+| Top-of-book match against an independent venue reference | NOT VERIFIED |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |
@@ -153,18 +157,27 @@ Reconstruction applies venue level updates to a two-sided book. A quantity of
 zero removes the level; any other quantity sets it. Prices and quantities are
 fixed-point decimals throughout, so no float rounding can move a level.
 
-The book is **partial**. Nothing has bootstrapped it from a depth snapshot yet,
-so levels that were never touched by an update are absent. Top-of-book numbers
-are therefore indicative and not yet a claim about the real book.
+Without a snapshot the book is **partial**: levels never touched by an update
+are absent. With one it is complete:
+
+```sh
+cargo run -p astra-record -- reconstruct --input ./capture --snapshot ./snapshot.json
+```
+
+The snapshot is a venue depth snapshot (`lastUpdateId` plus bids and asks).
+Events ending at or before the snapshot id are skipped, the first overlapping
+event applies, and every later event must continue the update-id sequence or
+the book is marked broken. A broken book rejects all further events until a
+new snapshot arrives; it never silently resumes.
 
 ```sh
 cargo run -p astra-record -- reconstruct --input ./capture
 ```
 
-Reports how many frames were applied, how many could not be parsed, the level
-counts, top of book, mid, spread, and whether the book ever crossed. A crossed
-book is a reconstruction error, and the run says so rather than presenting the
-numbers anyway.
+Reports how many frames were applied, skipped, or rejected, how many could not
+be parsed, the level counts, top of book, mid, spread, and whether the book
+ever crossed. A crossed book is a reconstruction error, and the run says so
+rather than presenting the numbers anyway.
 
 ## Capture layout
 
@@ -253,9 +266,14 @@ than silently falling back to something else.
 - Continuity checking assumes the venue stream is strictly sequential. A venue
   that coalesces or reorders updates would produce false gaps; no such case has
   been observed on the data captured so far.
-- The reconstructed book is **partial**. Nothing bootstraps it from a depth
-  snapshot yet, so levels never touched by an update are absent and top-of-book
-  is indicative rather than authoritative.
+- The reconstructed book is **complete only with a snapshot**. Without one,
+  levels never touched by an update are absent and top-of-book is indicative
+  rather than authoritative.
+- The venue REST endpoint is intermittently unreachable from the build
+  environment (TLS interception with `UnknownIssuer` on `api.binance.com`).
+  Snapshot and stream validation currently runs through the official public
+  mirrors `data-api.binance.vision` and `data-stream.binance.vision` with a
+  `--url` override, and the README says so instead of pretending otherwise.
 
 ## Verification record
 
@@ -275,8 +293,9 @@ the fact that the code compiles.
 | Feed URLs for Binance spot and perp | unit tests | VERIFIED |
 | Order-book level updates, including removals | unit tests plus a real captured frame that contains two zero-quantity removals | VERIFIED |
 | Reconstruction from captured frames | 601-frame live capture: all 601 applied, 0 unchecked, 0 invalid, 280 bid and 258 ask levels, spread of one tick, book never crossed | VERIFIED |
+| Snapshot bootstrap against a live venue snapshot | 400-frame capture with a mid-stream snapshot: 133 pre-snapshot events skipped (matches an independent count), 267 applied, 0 gaps, 0 rejected, overlap event at exactly S+1, spread of one tick, book never crossed | VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
-| Completeness of the reconstructed book | none — no snapshot bootstrap | NOT VERIFIED |
+| Top-of-book match against an independent venue reference | none — the end snapshot was 5,000 updates past the last captured event, so a direct comparison would measure market movement rather than reconstruction error | NOT VERIFIED |
 | Exchange checksum validation | none | NOT IMPLEMENTED |
 
 ## Failures encountered
@@ -307,6 +326,24 @@ order-book tests expected eight bid levels from a real captured frame. The
 frame actually holds six: two of its quantities are zero, which means remove,
 not add. The fixture corrected the test, not the other way round — which is the
 entire reason the fixture is a real frame rather than invented JSON.
+
+**The event iterator ate the event it stopped on.** The reference comparison
+walked events with `for ... in pending.by_ref()` and `break` when an event
+passed the reference snapshot. `break` consumes the current item, so that event
+was silently lost from the next comparison window. Three tests failed on counts
+before the cause was found. Fixed with an index-based walk that only advances
+past consumed events.
+
+**A repaired book stayed marked broken.** `is_reliable()` combined a state flag
+with a cumulative gap counter, so loading a fresh snapshot after a gap left the
+book permanently unreliable. The counter is history and the flag is state; only
+the flag belongs in the predicate.
+
+**The snapshot boundary was off by one.** Events ending exactly at the snapshot
+id were applied instead of skipped, re-applying updates the snapshot already
+contains. Live validation caught it: the independent count said 133 pre-snapshot
+events and the recorder said 132. Fixed to skip events with `last <= snapshot`
+as the venue protocol requires, with a regression test on the boundary.
 
 **Live Binance capture failed before it succeeded.** The first attempt died
 with `invalid peer certificate: UnknownIssuer`. Investigation showed the

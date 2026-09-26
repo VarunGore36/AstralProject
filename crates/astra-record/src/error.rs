@@ -11,6 +11,10 @@ pub enum RecordError {
     Serialisation(#[from] serde_json::Error),
     #[error("store error: {0}")]
     Store(#[from] StoreError),
+    #[error("book error: {0}")]
+    Book(#[from] astra_book::BookError),
+    #[error("unreadable snapshot: {0}")]
+    Snapshot(String),
     #[error("feed error: {0}")]
     Feed(#[from] FeedError),
     #[error("socket error: {0}")]

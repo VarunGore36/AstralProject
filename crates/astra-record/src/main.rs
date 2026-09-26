@@ -23,6 +23,7 @@ enum Command {
     Init(InitArgs),
     Capture(CaptureArgs),
     Reconstruct(ReconstructArgs),
+    Verify(VerifyArgs),
 }
 
 #[derive(clap::Args)]
@@ -65,6 +66,18 @@ struct CaptureArgs {
 struct ReconstructArgs {
     #[arg(long, value_name = "DIR")]
     input: PathBuf,
+    #[arg(long, value_name = "FILE")]
+    snapshot: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct VerifyArgs {
+    #[arg(long, value_name = "DIR")]
+    input: PathBuf,
+    #[arg(long, value_name = "DIR")]
+    reference: PathBuf,
+    #[arg(long, value_name = "LEVELS", default_value_t = 10)]
+    levels: usize,
 }
 
 fn main() -> ExitCode {
@@ -82,6 +95,7 @@ fn run(cli: Cli) -> Result<(), RecordError> {
         Command::Init(args) => init(args),
         Command::Capture(args) => capture(args),
         Command::Reconstruct(args) => reconstruct(args),
+        Command::Verify(args) => verify(args),
     }
 }
 
@@ -139,15 +153,25 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
 }
 
 fn reconstruct(args: ReconstructArgs) -> Result<(), RecordError> {
-    let summary = astra_record::reconstruct::reconstruct(&args.input)?;
+    let summary = astra_record::reconstruct::reconstruct(&args.input, args.snapshot.as_deref())?;
 
     println!("input       {}", args.input.display());
+    println!(
+        "snapshot    {}",
+        args.snapshot
+            .as_deref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none (book is partial)".to_owned())
+    );
     println!("records     {}", summary.records);
     println!("venue       {}", summary.venue_frames);
     println!("synthetic   {}", summary.synthetic_records);
     println!("applied     {}", summary.diffs_applied);
     println!("unchecked   {}", summary.frames_without_a_book);
     println!("invalid     {}", summary.invalid_diffs);
+    println!("skipped     {}", summary.skipped_before_snapshot);
+    println!("gaps        {}", summary.gaps);
+    println!("rejected    {}", summary.rejected_after_gap);
     println!("bid levels  {}", summary.book.bids_len());
     println!("ask levels  {}", summary.book.asks_len());
     println!("best bid    {}", describe_level(summary.book.best_bid()));
@@ -155,10 +179,38 @@ fn reconstruct(args: ReconstructArgs) -> Result<(), RecordError> {
     println!("mid         {}", describe_fixed(summary.book.mid()));
     println!("spread      {}", describe_fixed(summary.book.spread()));
     println!("crossed     {}", summary.book.is_crossed());
-    println!("note        the book is partial: no snapshot bootstrap yet");
 
+    if summary.snapshot_loaded.is_none() {
+        println!("note        the book is partial: no snapshot bootstrap");
+    }
     if let Some(error) = summary.first_error {
         println!("first error {error}");
+    }
+
+    Ok(())
+}
+
+fn verify(args: VerifyArgs) -> Result<(), RecordError> {
+    let report = astra_record::compare::compare(&args.input, &args.reference, args.levels)?;
+
+    println!("input       {}", args.input.display());
+    println!("reference   {}", args.reference.display());
+    println!("levels      {}", args.levels);
+    println!("events      {}", report.events);
+    println!("applied     {}", report.events_applied);
+    println!("skipped     {}", report.events_skipped);
+    println!("rejected    {}", report.events_rejected);
+    println!("bootstrap   {}", report.bootstrap_frames);
+    println!("checks      {}", report.checked);
+    println!("matched     {}", report.matched);
+    println!("mismatched  {}", report.mismatched);
+
+    if let Some(mismatch) = report.first_mismatch {
+        println!("first       {mismatch}");
+    }
+
+    if report.checked == 0 {
+        println!("note        nothing was checked, so nothing is verified");
     }
 
     Ok(())
