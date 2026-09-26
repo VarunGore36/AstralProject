@@ -44,6 +44,7 @@ A rigorous "this has no edge" is a successful result here.
 | Bootstrap verified against a live venue snapshot | DONE |
 | Top-of-book match against an independent venue reference | NOT VERIFIED |
 | Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
+| Project website (`website/`: static, framework-free) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |

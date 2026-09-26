@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Astral Project — An open, reproducible measurement layer for crypto markets</title>
+  <meta name="description" content="Astral Project is open infrastructure for deciding whether a crypto trading idea survives fees, slippage, latency, liquidity and realistic fills — and reproducing that answer later." />
+  <meta name="theme-color" content="#05070c" />
+  <meta property="og:title" content="Astral Project" />
+  <meta property="og:description" content="An open, reproducible measurement layer for crypto markets." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 27H3Z' fill='none' stroke='%235eead4' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='19' r='3.5' fill='%235eead4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="Astral Project home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 3 29 27H3Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" />
+          <circle cx="16" cy="19" r="3.5" fill="currentColor" />
+        </svg>
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <button class="menu-btn" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">
+        <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+      </button>
+      <nav class="site-nav" id="site-nav" aria-label="Primary">
+        <a href="#what">What</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#opensource">Open source</a>
+        <a href="#research">Research</a>
+        <a href="#principles">Principles</a>
+        <a href="#roadmap">Roadmap</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-bg" aria-hidden="true">
+        <div class="hero-grid"></div>
+        <div class="hero-glow hero-glow-a"></div>
+        <div class="hero-glow hero-glow-b"></div>
+      </div>
+      <div class="wrap hero-inner">
+        <p class="eyebrow reveal"><span class="pulse" aria-hidden="true"></span>Open-source market infrastructure · Gate 1 in progress</p>
+        <h1 id="hero-title" class="reveal">An open, reproducible measurement layer for crypto markets.</h1>
+        <p class="lede reveal">Astral makes it possible to determine whether a trading idea actually survives fees, slippage, latency, liquidity and realistic fills — and to reproduce that determination later.</p>
+        <div class="cta-row reveal">
+          <a class="btn btn-primary" href="https://github.com/VarunGore36/AstralProject" target="_blank" rel="noopener">View on GitHub</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject#readme" target="_blank" rel="noopener">Read the documentation</a>
+        </div>
+        <div class="hero-terminal reveal" role="img" aria-label="Terminal showing a live capture: 601 frames recorded with zero gaps">
+          <div class="terminal-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+<pre class="terminal-body"><code><span class="t-dim">$</span> astra-record capture <span class="t-dim">--venue binance --symbol BTC/USDT --channel book_diff</span>
+frames      <span class="t-ok">601</span>
+checked     <span class="t-ok">601</span>
+conn_gaps   0
+seq_gaps    0
+stop_reason duration_elapsed</code></pre>
+        </div>
+        <dl class="hero-stats reveal">
+          <div><dt>Frames verified live</dt><dd>601 <span>of 601 checked</span></dd></div>
+          <div><dt>Bootstrap skip count</dt><dd>133 <span>exact match</span></dd></div>
+          <div><dt>Unit tests</dt><dd>72 <span>passing</span></dd></div>
+          <div><dt>Profitability claims</dt><dd>0 <span>by design</span></dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="section" id="what" aria-labelledby="what-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal">What is Astral</p>
+        <h2 id="what-title" class="reveal">Most backtests answer the wrong question.</h2>
+        <div class="prose reveal">
+          <p>They ask <em>would this idea have made money</em> — on data nobody can inspect, with fills nobody can verify, under assumptions nobody wrote down. A quoted spread is treated as an executable opportunity. A paper result is presented as performance.</p>
+          <p>Astral asks a smaller, harder question instead: <strong>can we measure whether an apparent opportunity is actually executable</strong> — after fees, slippage, latency, liquidity, market impact, execution constraints, realistic fills and capital constraints?</p>
+          <p>It answers with a continuously-collected, provenance-tracked market-data corpus, a deterministic replay engine, and an honest execution-cost harness. Every result carries its dataset hash, its assumptions, and a reproduction command. A rigorous <strong>&ldquo;this has no edge&rdquo;</strong> is a successful result here.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="architecture" aria-labelledby="arch-title">
+      <div class="wrap">
+        <p class="eyebrow reveal">Architecture</p>
+        <h2 id="arch-title" class="reveal">A pipeline you can audit at every joint.</h2>
+        <p class="section-sub reveal">Raw venue bytes in. Reproducible claims out. Nothing in between is a black box.</p>
+        <div class="pipeline reveal" role="img" aria-label="Data pipeline: market data, recorder, normalizer, order book, replay, research">
+          <svg class="pipeline-svg" viewBox="0 0 960 200" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <defs>
+              <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#5eead4" stop-opacity="0.15"/>
+                <stop offset="0.5" stop-color="#5eead4"/>
+                <stop offset="1" stop-color="#a78bfa"/>
+              </linearGradient>
+              <filter id="nodeGlow" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="6" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <g class="pipe-line" stroke="url(#flow)" stroke-width="1.5" fill="none">
+              <path class="flow" d="M118 100 H 202"/>
+              <path class="flow flow-b" d="M278 100 H 362"/>
+              <path class="flow" d="M438 100 H 522"/>
+              <path class="flow flow-b" d="M598 100 H 682"/>
+              <path class="flow" d="M758 100 H 842"/>
+            </g>
+            <g font-family="'JetBrains Mono', monospace" font-size="11" text-anchor="middle">
+              <g class="pnode"><circle cx="80" cy="100" r="11" filter="url(#nodeGlow)"/><text x="80" y="140" fill="#e6edf3">Market data</text><text x="80" y="156" fill="#6b7684" font-size="9">WS feeds</text></g>
+              <g class="pnode"><circle cx="240" cy="100" r="11" filter="url(#nodeGlow)"/><text x="240" y="140" fill="#e6edf3">Recorder</text><text x="240" y="156" fill="#6b7684" font-size="9">lossless</text></g>
+              <g class="pnode"><circle cx="400" cy="100" r="11" filter="url(#nodeGlow)"/><text x="400" y="140" fill="#e6edf3">Normalizer</text><text x="400" y="156" fill="#6b7684" font-size="9">parquet</text></g>
+              <g class="pnode"><circle cx="560" cy="100" r="11" filter="url(#nodeGlow)"/><text x="560" y="140" fill="#e6edf3">Order book</text><text x="560" y="156" fill="#6b7684" font-size="9">L2 + snapshot</text></g>
+              <g class="pnode"><circle cx="720" cy="100" r="11" filter="url(#nodeGlow)"/><text x="720" y="140" fill="#e6edf3">Replay</text><text x="720" y="156" fill="#6b7684" font-size="9">deterministic</text></g>
+              <g class="pnode"><circle cx="880" cy="100" r="11" filter="url(#nodeGlow)"/><text x="880" y="140" fill="#e6edf3">Research</text><text x="880" y="156" fill="#6b7684" font-size="9">reproducible</text></g>
+            </g>
+          </svg>
+        </div>
+        <div class="grid grid-3">
+          <article class="card reveal"><h3>Lossless capture</h3><p>Raw frames written to compressed, content-addressed chunks with capture timestamps and a SHA-256 integrity index. Drops and gaps are recorded as data, never absorbed silently.</p></article>
+          <article class="card reveal"><h3>Checked reconstruction</h3><p>L2 books rebuilt from diffs on a snapshot bootstrap, with venue update-ID continuity enforced. A broken book rejects events until a new snapshot — it never silently resumes.</p></article>
+          <article class="card reveal"><h3>Deterministic replay</h3><p>Same capture in, byte-identical results out, on any machine. The precondition for every claim the project will ever make.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="opensource" aria-labelledby="oss-title">
+      <div class="wrap">
+        <p class="eyebrow reveal">Open source</p>
+        <h2 id="oss-title" class="reveal">The engine is open. Run it yourself.</h2>
+        <p class="section-sub reveal">Apache-2.0. The full research loop runs locally on your own machine — record, verify, reconstruct, report. Nothing essential is held back for a paid tier.</p>
+        <div class="grid grid-3">
+          <article class="card repo reveal">
+            <p class="mono-label">crate · astra-types</p>
+            <h3>The schema everything stands on</h3>
+            <p>Fixed-point decimals, nanosecond timestamps, venue and instrument identifiers, capture records with quality flags.</p>
+          </article>
+          <article class="card repo reveal">
+            <p class="mono-label">crate · astra-record</p>
+            <h3>Capture, reconstruct, verify</h3>
+            <p><code>init</code> · <code>capture</code> · <code>check</code> · <code>reconstruct</code> · <code>verify</code> — the lossless recorder and its audit tooling.</p>
+          </article>
+          <article class="card repo reveal">
+            <p class="mono-label">crate · astra-book</p>
+            <h3>Order-book state</h3>
+            <p>Venue-neutral level updates, snapshot bootstrap, continuity enforcement, top-of-book comparison.</p>
+          </article>
+        </div>
+        <div class="oss-cta reveal">
+          <a class="btn btn-primary" href="https://github.com/VarunGore36/AstralProject" target="_blank" rel="noopener">Clone the repository</a>
+          <code class="clone-cmd">git clone https://github.com/VarunGore36/AstralProject.git</code>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="research" aria-labelledby="research-title">
+      <div class="wrap">
+        <p class="eyebrow reveal">Research</p>
+        <h2 id="research-title" class="reveal">Findings, not promises.</h2>
+        <p class="section-sub reveal">Every note ships with its dataset, assumptions and reproduction command — including the ones that find nothing.</p>
+        <div class="grid grid-2">
+          <article class="card research reveal">
+            <p class="mono-label status-done">Verified · live venue data</p>
+            <h3>Lossless capture at venue rate</h3>
+            <p>601 frames captured at 10.1/s against the live book-diff feed. All 601 continuity-checked, zero gaps, chunk hash independently cross-checked.</p>
+          </article>
+          <article class="card research reveal">
+            <p class="mono-label status-done">Verified · live venue snapshot</p>
+            <h3>Snapshot bootstrap with exact skip counts</h3>
+            <p>400-frame capture against a mid-stream depth snapshot: 133 pre-snapshot events skipped — matching an independent count exactly — 267 applied, zero gaps.</p>
+          </article>
+          <article class="card research reveal">
+            <p class="mono-label status-next">In progress</p>
+            <h3>How much quoted spread is capturable?</h3>
+            <p>Cross-exchange spreads measured as fill probability plus cost-adjusted edge — never as P&amp;L. The platform&rsquo;s calibration benchmark.</p>
+          </article>
+          <article class="card research reveal">
+            <p class="mono-label status-next">Planned</p>
+            <h3>Cost-adjusted funding and basis carry</h3>
+            <p>Can a simple delta-neutral funding strategy survive realistic fees, slippage, basis movement and execution constraints? Asked honestly, answered with data.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="principles" aria-labelledby="principles-title">
+      <div class="wrap">
+        <p class="eyebrow reveal">Principles</p>
+        <h2 id="principles-title" class="reveal">The epistemics are the product.</h2>
+        <div class="grid grid-3">
+          <article class="card reveal"><h3>Reproducibility</h3><p>Same inputs, same code, same result — on any machine. Every claim carries a reproduction command.</p></article>
+          <article class="card reveal"><h3>Realistic execution</h3><p>No fill without a trade print through your price. No quoted spread presented as an opportunity.</p></article>
+          <article class="card reveal"><h3>Provenance</h3><p>Every byte traced to its venue, its capture, its schema version. Quality tiers, not blind trust.</p></article>
+          <article class="card reveal"><h3>No fake profitability</h3><p>Backtests are labelled backtests. Paper is not live. Optimistic models are marked unrealistic in the output itself.</p></article>
+          <article class="card reveal"><h3>Transparent assumptions</h3><p>Fees, slippage, latency, capital, execution model — on the chart, not in a footnote.</p></article>
+          <article class="card reveal"><h3>Negative results count</h3><p>&ldquo;No edge&rdquo; is a first-class, publishable finding. Refutation is the mechanism that makes positive claims worth trusting.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="roadmap" aria-labelledby="roadmap-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal">Roadmap</p>
+        <h2 id="roadmap-title" class="reveal">Gates with kill criteria, not a feature wishlist.</h2>
+        <p class="section-sub reveal">Each stage must earn the next one with evidence. If a gate fails, the project stops or pivots — that outcome is designed in.</p>
+        <ol class="gates">
+          <li class="gate gate-active reveal"><div class="gate-head"><span class="gate-num">01</span><h3>Capture &amp; reconstruct</h3><span class="gate-state">In progress</span></div><p>Lossless recording, verified book reconstruction, offline audit. Judged by a 72-hour soak with zero unexplained loss.</p></li>
+          <li class="gate reveal"><div class="gate-head"><span class="gate-num">02</span><h3>Does it work</h3><span class="gate-state">Planned</span></div><p>Shadow mode measures predicted fills against what was actually tradable. Dies if model error exceeds ~10 bps on liquid pairs.</p></li>
+          <li class="gate reveal"><div class="gate-head"><span class="gate-num">03</span><h3>Useful research</h3><span class="gate-state">Planned</span></div><p>One honest published research note. Dies if three months of real use produces nothing substantive.</p></li>
+          <li class="gate reveal"><div class="gate-head"><span class="gate-num">04</span><h3>Do others use it</h3><span class="gate-state">Planned</span></div><p>External users running the recorder, external reproductions of published results. Dies quietly if nobody comes.</p></li>
+          <li class="gate reveal"><div class="gate-head"><span class="gate-num">05–07</span><h3>Demand, then commercial</h3><span class="gate-state">Planned</span></div><p>Find what users struggle to run themselves, pre-sell it, then build it. Data first, hosted research second, calibrated models third.</p></li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="https://github.com/VarunGore36/AstralProject" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/VarunGore36/AstralProject#readme" target="_blank" rel="noopener">Documentation</a>
+        <a href="https://github.com/VarunGore36/AstralProject#verification-record" target="_blank" rel="noopener">Verification record</a>
+        <a href="https://github.com/VarunGore36/AstralProject#roadmap" target="_blank" rel="noopener">Roadmap</a>
+      </nav>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
