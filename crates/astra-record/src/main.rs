@@ -24,6 +24,7 @@ enum Command {
     Capture(CaptureArgs),
     Reconstruct(ReconstructArgs),
     Verify(VerifyArgs),
+    Check(CheckArgs),
 }
 
 #[derive(clap::Args)]
@@ -80,6 +81,12 @@ struct VerifyArgs {
     levels: usize,
 }
 
+#[derive(clap::Args)]
+struct CheckArgs {
+    #[arg(long, value_name = "DIR")]
+    input: PathBuf,
+}
+
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -96,6 +103,7 @@ fn run(cli: Cli) -> Result<(), RecordError> {
         Command::Capture(args) => capture(args),
         Command::Reconstruct(args) => reconstruct(args),
         Command::Verify(args) => verify(args),
+        Command::Check(args) => check_capture(args),
     }
 }
 
@@ -212,6 +220,70 @@ fn verify(args: VerifyArgs) -> Result<(), RecordError> {
     if report.checked == 0 {
         println!("note        nothing was checked, so nothing is verified");
     }
+
+    Ok(())
+}
+
+fn check_capture(args: CheckArgs) -> Result<(), RecordError> {
+    let report = astra_record::check::check(&args.input)?;
+
+    println!("input       {}", args.input.display());
+    println!("chunks      {}", report.chunks);
+    println!("records     {}", report.records);
+    println!("venue       {}", report.venue_frames);
+    println!("synthetic   {}", report.synthetic_records);
+    println!("checked     {}", report.checked_frames);
+    println!("unchecked   {}", report.unchecked_frames);
+    println!("conn_gaps   {}", report.connection_gaps);
+    println!("seq_gaps    {}", report.update_id_gaps.len());
+    println!("seq_breaks  {}", report.seq_breaks.len());
+    println!(
+        "manifest    {}",
+        report
+            .manifest_frames
+            .map(|frames| frames.to_string())
+            .unwrap_or_else(|| "missing".to_owned())
+    );
+    println!(
+        "span        {}",
+        match (report.first_ts, report.last_ts) {
+            (Some(first), Some(last)) => format!(
+                "{}s first to last",
+                last.unix_nanos().saturating_sub(first.unix_nanos()) as f64 / 1_000_000_000.0
+            ),
+            _ => "empty".to_owned(),
+        }
+    );
+
+    for gap in &report.gap_details {
+        println!(
+            "gap         seq {} attempts {} {}",
+            gap.seq, gap.attempts, gap.reason
+        );
+    }
+    for id_gap in &report.update_id_gaps {
+        if id_gap.expected != 0 {
+            println!(
+                "update_gap  expected {} saw {}",
+                id_gap.expected, id_gap.found
+            );
+        }
+    }
+    for seq_break in &report.seq_breaks {
+        println!(
+            "seq_break   expected {} found {}",
+            seq_break.expected, seq_break.found
+        );
+    }
+
+    println!(
+        "verdict     {}",
+        if report.is_healthy() {
+            "healthy"
+        } else {
+            "issues found, see above"
+        }
+    );
 
     Ok(())
 }

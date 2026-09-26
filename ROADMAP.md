@@ -7,7 +7,7 @@ own book reconstruction is correct.
 
 | Claim | Measurable done | State |
 |---|---|---|
-| Capture is lossless | zero dropped raw frames over a 72 hour soak across all instruments, verified by websocket sequence continuity and a file integrity manifest | OPEN — 60 s runs clean, no soak yet |
+| Capture is lossless | zero dropped raw frames over a 72 hour soak across all instruments, verified by websocket sequence continuity and a file integrity manifest | OPEN — 30–60 s runs clean and the `check` audit tooling is built and proven on them, no soak yet |
 | Book reconstruction is correct | local book matches venue published checksum on at least 99.99% of checksum frames, every mismatch logged and resynced | PARTIAL — diffs apply cleanly, bootstrap verified against a live snapshot with exact skip counts and zero gaps, but no independent top-of-book reference is compared yet |
 | Sequence gaps are handled | fewer than 1 unexplained gap per instrument day over the soak, every gap recorded and the window marked unreliable | PARTIAL — connection and update-ID gaps are recorded and marked, the rate over a soak is not measured |
 | Processing latency | p50 and p99 socket read to book ready published per venue, target p99 under 5 ms on reference hardware | NOT MEASURED |
@@ -20,8 +20,10 @@ liquidations.
 
 Built so far: capture for Binance `book_diff`, chunked storage with a SHA-256
 integrity index, reconnect with gap records, update-ID continuity checking,
-order-book reconstruction with snapshot bootstrap, and a reference comparison
-harness that reports matches and mismatches per snapshot.
+order-book reconstruction with snapshot bootstrap, a reference comparison
+harness that reports matches and mismatches per snapshot, and an offline
+capture audit (`check`) that verifies hashes, sequence and update-ID continuity
+without loading the whole capture into memory.
 
 ## Gate 2 — does it work
 

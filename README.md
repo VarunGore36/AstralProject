@@ -15,12 +15,12 @@ A rigorous "this has no edge" is a successful result here.
   `astra-record init`, `astra-record capture` verified against the live Binance
   book-diff feed, reconnect with explicit gap records, venue update-ID
   continuity checking, L2 order-book reconstruction from captured frames,
-  snapshot bootstrap verified against a live venue snapshot.
-- **Working on** — top-of-book comparison against an independent venue
-  reference, a second venue, additional channels.
-- **Next (one thing)** — compare the reconstructed book against a
-  venue-published reference taken at the same update ID, to close the Gate 1
-  correctness claim.
+  snapshot bootstrap verified against a live venue snapshot, `astra-record
+  check` offline audit of a capture directory.
+- **Working on** — the 72-hour soak: sustained capture with periodic audits.
+- **Next (one thing)** — run the recorder for 72 hours across the wedge
+  instruments and judge it with `check`: zero dropped frames, fewer than one
+  unexplained gap per instrument day, every chunk hash-verified.
 
 ## What exists today
 
@@ -43,6 +43,7 @@ A rigorous "this has no edge" is a successful result here.
 | Snapshot bootstrap for a complete book | DONE |
 | Bootstrap verified against a live venue snapshot | DONE |
 | Top-of-book match against an independent venue reference | NOT VERIFIED |
+| Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |
@@ -179,6 +180,19 @@ be parsed, the level counts, top of book, mid, spread, and whether the book
 ever crossed. A crossed book is a reconstruction error, and the run says so
 rather than presenting the numbers anyway.
 
+## Auditing a capture
+
+```sh
+cargo run -p astra-record -- check --input ./capture
+```
+
+Verifies every chunk against its recorded SHA-256 before decoding it, then
+audits the whole capture: sequence continuity, update-ID continuity for frames
+whose format is understood, gap records with their reasons, and the time span.
+It streams chunk by chunk, so a multi-day capture never needs to fit in memory.
+A corrupt chunk fails the run with an integrity error; gaps and breaks are
+reported as findings with a verdict of `healthy` or `issues found, see above`.
+
 ## Capture layout
 
 ```text
@@ -274,6 +288,8 @@ than silently falling back to something else.
   Snapshot and stream validation currently runs through the official public
   mirrors `data-api.binance.vision` and `data-stream.binance.vision` with a
   `--url` override, and the README says so instead of pretending otherwise.
+- The 72-hour soak has not been run. Short captures (30–60 s) are clean, but
+  that is not evidence about days of sustained operation.
 
 ## Verification record
 
@@ -294,6 +310,7 @@ the fact that the code compiles.
 | Order-book level updates, including removals | unit tests plus a real captured frame that contains two zero-quantity removals | VERIFIED |
 | Reconstruction from captured frames | 601-frame live capture: all 601 applied, 0 unchecked, 0 invalid, 280 bid and 258 ask levels, spread of one tick, book never crossed | VERIFIED |
 | Snapshot bootstrap against a live venue snapshot | 400-frame capture with a mid-stream snapshot: 133 pre-snapshot events skipped (matches an independent count), 267 applied, 0 gaps, 0 rejected, overlap event at exactly S+1, spread of one tick, book never crossed | VERIFIED |
+| Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
 | Top-of-book match against an independent venue reference | none — the end snapshot was 5,000 updates past the last captured event, so a direct comparison would measure market movement rather than reconstruction error | NOT VERIFIED |
 | Exchange checksum validation | none | NOT IMPLEMENTED |
