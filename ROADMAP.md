@@ -41,15 +41,7 @@ Five or more external users running the recorder, at least two external
 reproductions of a published result. Kill if a real launch sees no external use
 within six months.
 
-## Gate 5 — what do people struggle to do themselves
+## Beyond Gate 4
 
-Fifteen or more structured interviews plus issue telemetry.
-
-## Gate 6 — will they pay
-
-Signed letters of intent or prepayments from three or more buyers before
-anything commercial is built.
-
-## Gate 7 — build the commercial product
-
-Sell data first, then hosted sweeps, then calibrated execution models.
+Further stages are defined from what Gate 4 teaches, not before. The public
+roadmap ends where the evidence ends.
