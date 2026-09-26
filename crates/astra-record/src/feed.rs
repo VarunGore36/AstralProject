@@ -113,7 +113,6 @@ fn binance_stream_url(instrument: &Instrument, channel: Channel) -> Result<Strin
         (_, Channel::Trade) => format!("{symbol}@trade"),
         (_, Channel::BookTicker) => format!("{symbol}@bookTicker"),
         (MarketType::PerpUsdt, Channel::Funding) => format!("{symbol}@markPrice@1s"),
-        (MarketType::PerpUsdt, Channel::OpenInterest) => format!("{symbol}@openInterest@1s"),
         (MarketType::PerpUsdt, Channel::Liquidation) => format!("{symbol}@forceOrder"),
         _ => return Err(not_implemented(instrument, channel)),
     };
@@ -226,10 +225,15 @@ mod tests {
             stream_url(&perp, Channel::Liquidation).unwrap(),
             "wss://fstream.binance.com/ws/btcusdt@forceOrder"
         );
-        assert_eq!(
-            stream_url(&perp, Channel::OpenInterest).unwrap(),
-            "wss://fstream.binance.com/ws/btcusdt@openInterest@1s"
-        );
+    }
+
+    #[test]
+    fn open_interest_is_not_a_native_websocket_stream() {
+        let perp = instrument(Venue::Binance, MarketType::PerpUsdt);
+        assert!(matches!(
+            stream_url(&perp, Channel::OpenInterest),
+            Err(FeedError::NotImplemented { .. })
+        ));
     }
 
     #[test]

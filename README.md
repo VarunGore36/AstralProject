@@ -278,15 +278,20 @@ A dropped connection is re-established up to `--max-reconnects` times (default
 | binance | spot | book_ticker | `wss://stream.binance.com:9443/ws/<symbol>@bookTicker` |
 | binance | perp_usdt | book_diff | `wss://fstream.binance.com/ws/<symbol>@depth@100ms` |
 | binance | perp_usdt | funding | `wss://fstream.binance.com/ws/<symbol>@markPrice@1s` |
-| binance | perp_usdt | open_interest | `wss://fstream.binance.com/ws/<symbol>@openInterest@1s` |
 | binance | perp_usdt | liquidation | `wss://fstream.binance.com/ws/<symbol>@forceOrder` |
 
 The four spot channels are verified against the live venue — each captured real
-payloads. The three perp channels are mapped from the venue's published stream
-names but are not yet live-verified: the futures endpoints are unreachable from
-the build environment, so that stays stated rather than assumed. Funding and
-liquidation are futures-only, so requesting them for spot is refused with an
-explicit not-implemented error. Bybit is not connected at all.
+payloads. The two perp channels below are **documented**: both are native
+Binance USDS-M futures streams (`@markPrice@1s` is the mark-price and funding
+stream; `@forceOrder` is the liquidation stream), confirmed against the
+venue's published stream names, but not yet live-verified because the futures
+endpoints are geo-blocked from the build environment.
+
+`open_interest` has no native WebSocket stream — open interest is a
+REST-sourced, generated channel — so it is deliberately not mapped until a
+REST-derived capture exists. Funding and liquidation are futures-only, so
+requesting them for spot is refused with an explicit not-implemented error.
+Bybit is not connected at all.
 
 ## Known limitations
 
@@ -294,9 +299,10 @@ explicit not-implemented error. Bybit is not connected at all.
   out of the payload is normalisation work and happens later.
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
-- One venue, seven channels. Bybit is not connected at all. Perp channels are
-  mapped from the venue's published stream names but not live-verified, since the
-  futures endpoints are unreachable from the build environment.
+- One venue, seven channels. Bybit is not connected at all. Of the seven,
+  four spot channels are live-verified; `funding` and `liquidation` are
+  documented but not live-verifiable from the build environment, and
+  `open_interest` has no native WebSocket stream at all.
 - Continuity checking has a rule only for `book_diff`, because that is the only
   channel whose payload carries a monotonic update range. The `book_ticker`
   payload does carry an update id and may get a rule later.
@@ -335,7 +341,7 @@ the fact that the code compiles.
 | Snapshot bootstrap against a live venue snapshot | 400-frame capture with a mid-stream snapshot: 133 pre-snapshot events skipped (matches an independent count), 267 applied, 0 gaps, 0 rejected, overlap event at exactly S+1, spread of one tick, book never crossed | VERIFIED |
 | Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
 | Multi-channel capture | four spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
-| Perp channels (`funding`, `open_interest`, `liquidation`) | none — futures endpoints unreachable, so these are mapped from published stream names and labelled unverified | NOT VERIFIED |
+| Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
 | Top-of-book match against an independent venue reference | none — the end snapshot was 5,000 updates past the last captured event, so a direct comparison would measure market movement rather than reconstruction error | NOT VERIFIED |
 | Exchange checksum validation | none | NOT IMPLEMENTED |
@@ -368,6 +374,15 @@ order-book tests expected eight bid levels from a real captured frame. The
 frame actually holds six: two of its quantities are zero, which means remove,
 not add. The fixture corrected the test, not the other way round — which is the
 entire reason the fixture is a real frame rather than invented JSON.
+
+**A stream name was mapped from memory and did not exist.** `open_interest` was
+mapped to `<symbol>@openInterest@1s`, a WebSocket stream that does not exist —
+open interest is a REST-sourced, generated channel on Binance futures. A vendor
+doc index confirmed it, and the mapping was removed. Two consequences worth
+remembering: never map a venue endpoint from recollection without a citable
+source, and a wrong stream name fails loudly only if you attempt the connection
+— it fails silently if you only assert the URL string in a test. The regression
+test now asserts the channel is *refused*, which is the behaviour that matters.
 
 **The event iterator ate the event it stopped on.** The reference comparison
 walked events with `for ... in pending.by_ref()` and `break` when an event

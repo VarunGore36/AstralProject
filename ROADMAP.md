@@ -25,6 +25,10 @@ comparison harness that reports matches and mismatches per snapshot, and an
 offline capture audit (`check`) that verifies hashes, sequence and update-ID
 continuity without loading the whole capture into memory.
 
+Order-book semantics match the venue's documented procedure exactly: events with
+`u <= lastUpdateId` are discarded, and `U > lastUpdateId + 1` means events were
+missed. Channels without a native stream are refused rather than guessed at.
+
 ## Gate 2 — does it work
 
 Shadow mode compares predicted fills against what was actually tradable. Kill
