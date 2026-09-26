@@ -107,9 +107,14 @@ fn binance_stream_url(instrument: &Instrument, channel: Channel) -> Result<Strin
     };
 
     let symbol = stream_symbol(instrument)?;
-    let stream = match channel {
-        Channel::BookDiff => format!("{symbol}@depth@100ms"),
-        Channel::BookSnapshot => format!("{symbol}@depth10@100ms"),
+    let stream = match (instrument.market_type(), channel) {
+        (_, Channel::BookDiff) => format!("{symbol}@depth@100ms"),
+        (_, Channel::BookSnapshot) => format!("{symbol}@depth10@100ms"),
+        (_, Channel::Trade) => format!("{symbol}@trade"),
+        (_, Channel::BookTicker) => format!("{symbol}@bookTicker"),
+        (MarketType::PerpUsdt, Channel::Funding) => format!("{symbol}@markPrice@1s"),
+        (MarketType::PerpUsdt, Channel::OpenInterest) => format!("{symbol}@openInterest@1s"),
+        (MarketType::PerpUsdt, Channel::Liquidation) => format!("{symbol}@forceOrder"),
         _ => return Err(not_implemented(instrument, channel)),
     };
 
@@ -183,10 +188,48 @@ mod tests {
         assert!(matches!(
             stream_url(
                 &instrument(Venue::Binance, MarketType::Spot),
-                Channel::Trade
+                Channel::Funding
             ),
             Err(FeedError::NotImplemented { .. })
         ));
+        assert!(matches!(
+            stream_url(
+                &instrument(Venue::Binance, MarketType::Spot),
+                Channel::Liquidation
+            ),
+            Err(FeedError::NotImplemented { .. })
+        ));
+    }
+
+    #[test]
+    fn every_supported_channel_maps_to_its_venue_stream() {
+        let spot = instrument(Venue::Binance, MarketType::Spot);
+        assert_eq!(
+            stream_url(&spot, Channel::Trade).unwrap(),
+            "wss://stream.binance.com:9443/ws/btcusdt@trade"
+        );
+        assert_eq!(
+            stream_url(&spot, Channel::BookTicker).unwrap(),
+            "wss://stream.binance.com:9443/ws/btcusdt@bookTicker"
+        );
+        assert_eq!(
+            stream_url(&spot, Channel::BookSnapshot).unwrap(),
+            "wss://stream.binance.com:9443/ws/btcusdt@depth10@100ms"
+        );
+
+        let perp = instrument(Venue::Binance, MarketType::PerpUsdt);
+        assert_eq!(
+            stream_url(&perp, Channel::Funding).unwrap(),
+            "wss://fstream.binance.com/ws/btcusdt@markPrice@1s"
+        );
+        assert_eq!(
+            stream_url(&perp, Channel::Liquidation).unwrap(),
+            "wss://fstream.binance.com/ws/btcusdt@forceOrder"
+        );
+        assert_eq!(
+            stream_url(&perp, Channel::OpenInterest).unwrap(),
+            "wss://fstream.binance.com/ws/btcusdt@openInterest@1s"
+        );
     }
 
     #[test]

@@ -20,8 +20,10 @@ A rigorous "this has no edge" is a successful result here.
   book-diff feed, reconnect with explicit gap records, venue update-ID
   continuity checking, L2 order-book reconstruction from captured frames,
   snapshot bootstrap verified against a live venue snapshot, `astra-record
-  check` offline audit of a capture directory.
-- **Working on** — the 72-hour soak: sustained capture with periodic audits.
+  check` offline audit of a capture directory, and all seven Binance channels
+  captured.
+- **Working on** — top-of-book comparison against an independent venue
+  reference, a second venue.
 - **Next (one thing)** — run the recorder for 72 hours across the wedge
   instruments and judge it with `check`: zero dropped frames, fewer than one
   unexplained gap per instrument day, every chunk hash-verified.
@@ -38,10 +40,12 @@ A rigorous "this has no edge" is a successful result here.
 | `astra-record init` capture layout | DONE |
 | Chunked record store with SHA-256 integrity index | DONE |
 | Live Binance capture, `book_diff` channel | DONE |
+| All seven Binance channels captured | DONE |
 | Reconnect with explicit gap records | DONE |
 | Venue update-ID continuity checking | DONE |
+| Order-book parsing and continuity rules | DONE |
 | Bybit feed | NOT IMPLEMENTED |
-| Channels other than `book_diff` | NOT IMPLEMENTED |
+| Perp channels live-verified | NOT VERIFIED — endpoints unreachable from the build environment |
 | Order-book state and level updates | DONE |
 | Reconstruction from captured frames | DONE |
 | Snapshot bootstrap for a complete book | DONE |
@@ -76,8 +80,9 @@ flowchart LR
 | Deterministic replay | NOT IMPLEMENTED |
 | Research results | NOT IMPLEMENTED |
 
-Partially implemented means one venue and one channel. Binance `book_diff` is
-connected and verified; Bybit and every other channel are not connected yet.
+Partially implemented means one venue, seven channels. Every Binance channel is
+mapped and capturable; only `book_diff` has parsing and continuity rules, which
+is what the `checked` counter in a capture run reports on.
 
 ## Repository layout
 
@@ -268,10 +273,20 @@ A dropped connection is re-established up to `--max-reconnects` times (default
 | Venue | Market | Channel | Stream |
 | --- | --- | --- | --- |
 | binance | spot | book_diff | `wss://stream.binance.com:9443/ws/<symbol>@depth@100ms` |
+| binance | spot | book_snapshot | `wss://stream.binance.com:9443/ws/<symbol>@depth10@100ms` |
+| binance | spot | trade | `wss://stream.binance.com:9443/ws/<symbol>@trade` |
+| binance | spot | book_ticker | `wss://stream.binance.com:9443/ws/<symbol>@bookTicker` |
 | binance | perp_usdt | book_diff | `wss://fstream.binance.com/ws/<symbol>@depth@100ms` |
+| binance | perp_usdt | funding | `wss://fstream.binance.com/ws/<symbol>@markPrice@1s` |
+| binance | perp_usdt | open_interest | `wss://fstream.binance.com/ws/<symbol>@openInterest@1s` |
+| binance | perp_usdt | liquidation | `wss://fstream.binance.com/ws/<symbol>@forceOrder` |
 
-Every other combination is refused with an explicit not-implemented error rather
-than silently falling back to something else.
+The four spot channels are verified against the live venue — each captured real
+payloads. The three perp channels are mapped from the venue's published stream
+names but are not yet live-verified: the futures endpoints are unreachable from
+the build environment, so that stays stated rather than assumed. Funding and
+liquidation are futures-only, so requesting them for spot is refused with an
+explicit not-implemented error. Bybit is not connected at all.
 
 ## Known limitations
 
@@ -279,9 +294,12 @@ than silently falling back to something else.
   out of the payload is normalisation work and happens later.
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
-- One venue and one channel are connected: Binance `book_diff`. Bybit and every
-  other channel are not implemented, so update-ID continuity checking has no
-  rule defined for them yet.
+- One venue, seven channels. Bybit is not connected at all. Perp channels are
+  mapped from the venue's published stream names but not live-verified, since the
+  futures endpoints are unreachable from the build environment.
+- Continuity checking has a rule only for `book_diff`, because that is the only
+  channel whose payload carries a monotonic update range. The `book_ticker`
+  payload does carry an update id and may get a rule later.
 - Continuity checking assumes the venue stream is strictly sequential. A venue
   that coalesces or reorders updates would produce false gaps; no such case has
   been observed on the data captured so far.
@@ -316,6 +334,8 @@ the fact that the code compiles.
 | Reconstruction from captured frames | 601-frame live capture: all 601 applied, 0 unchecked, 0 invalid, 280 bid and 258 ask levels, spread of one tick, book never crossed | VERIFIED |
 | Snapshot bootstrap against a live venue snapshot | 400-frame capture with a mid-stream snapshot: 133 pre-snapshot events skipped (matches an independent count), 267 applied, 0 gaps, 0 rejected, overlap event at exactly S+1, spread of one tick, book never crossed | VERIFIED |
 | Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
+| Multi-channel capture | four spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
+| Perp channels (`funding`, `open_interest`, `liquidation`) | none — futures endpoints unreachable, so these are mapped from published stream names and labelled unverified | NOT VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
 | Top-of-book match against an independent venue reference | none — the end snapshot was 5,000 updates past the last captured event, so a direct comparison would measure market movement rather than reconstruction error | NOT VERIFIED |
 | Exchange checksum validation | none | NOT IMPLEMENTED |
