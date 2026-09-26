@@ -14,10 +14,11 @@ A rigorous "this has no edge" is a successful result here.
 - **Done** — core types, chunked capture store with SHA-256 integrity index,
   `astra-record init`, `astra-record capture` verified against the live Binance
   book-diff feed, reconnect with explicit gap records, venue update-ID
-  continuity checking.
-- **Working on** — a second venue, additional channels.
-- **Next (one thing)** — rebuild L2 order books from captured data and validate
-  them against exchange-published checksums.
+  continuity checking, L2 order-book reconstruction from captured frames.
+- **Working on** — validating reconstruction against a venue-published
+  reference, a second venue, additional channels.
+- **Next (one thing)** — bootstrap from a depth snapshot so the book is complete
+  rather than partial, then compare it against a venue-published top-of-book.
 
 ## What exists today
 
@@ -35,7 +36,9 @@ A rigorous "this has no edge" is a successful result here.
 | Venue update-ID continuity checking | DONE |
 | Bybit feed | NOT IMPLEMENTED |
 | Channels other than `book_diff` | NOT IMPLEMENTED |
-| Order-book reconstruction | NOT IMPLEMENTED |
+| Order-book state and level updates | DONE |
+| Reconstruction from captured frames | DONE |
+| Snapshot bootstrap for a complete book | NOT IMPLEMENTED |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |
@@ -71,7 +74,8 @@ connected and verified; Bybit and every other channel are not connected yet.
 | Path | Purpose |
 | --- | --- |
 | `crates/astra-types` | The schema: decimal and timestamp primitives, identifiers, capture records |
-| `crates/astra-record` | Lossless market-data capture |
+| `crates/astra-book` | Order-book state: level updates, top of book, invariants |
+| `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
 ## Data model
@@ -142,6 +146,25 @@ Continuity is only checked where the payload format is understood. Frames that
 cannot be parsed are not checked, and the run reports `checked` alongside
 `frames` so that a zero sequence-gap count is only meaningful when the two
 numbers match.
+
+## Order book
+
+Reconstruction applies venue level updates to a two-sided book. A quantity of
+zero removes the level; any other quantity sets it. Prices and quantities are
+fixed-point decimals throughout, so no float rounding can move a level.
+
+The book is **partial**. Nothing has bootstrapped it from a depth snapshot yet,
+so levels that were never touched by an update are absent. Top-of-book numbers
+are therefore indicative and not yet a claim about the real book.
+
+```sh
+cargo run -p astra-record -- reconstruct --input ./capture
+```
+
+Reports how many frames were applied, how many could not be parsed, the level
+counts, top of book, mid, spread, and whether the book ever crossed. A crossed
+book is a reconstruction error, and the run says so rather than presenting the
+numbers anyway.
 
 ## Capture layout
 
@@ -230,6 +253,9 @@ than silently falling back to something else.
 - Continuity checking assumes the venue stream is strictly sequential. A venue
   that coalesces or reorders updates would produce false gaps; no such case has
   been observed on the data captured so far.
+- The reconstructed book is **partial**. Nothing bootstraps it from a depth
+  snapshot yet, so levels never touched by an update are absent and top-of-book
+  is indicative rather than authoritative.
 
 ## Verification record
 
@@ -247,8 +273,11 @@ the fact that the code compiles.
 | Reconnect writes gap records and continues | unit tests drop the feed mid-capture and check the marker, its span and the continued sequence | VERIFIED |
 | Update-ID continuity checking | parser tested against a real captured Binance frame; live run checked 601 of 601 frames and reported 0 gaps; unit tests inject a discontinuity and confirm it is detected and marked | VERIFIED |
 | Feed URLs for Binance spot and perp | unit tests | VERIFIED |
+| Order-book level updates, including removals | unit tests plus a real captured frame that contains two zero-quantity removals | VERIFIED |
+| Reconstruction from captured frames | 601-frame live capture: all 601 applied, 0 unchecked, 0 invalid, 280 bid and 258 ask levels, spread of one tick, book never crossed | VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
-| Order-book reconstruction | none | NOT IMPLEMENTED |
+| Completeness of the reconstructed book | none — no snapshot bootstrap | NOT VERIFIED |
+| Exchange checksum validation | none | NOT IMPLEMENTED |
 
 ## Failures encountered
 
@@ -272,6 +301,12 @@ incremented the connection-gap counter from the shared gap-writing function, so
 a sequence gap was tallied as a connection gap. The test failed on the count
 rather than on the detection, which is what tests are for. Fixed by removing
 the counter from the writer and letting the caller classify each record.
+
+**A test asserted a belief that the real data contradicted.** The first
+order-book tests expected eight bid levels from a real captured frame. The
+frame actually holds six: two of its quantities are zero, which means remove,
+not add. The fixture corrected the test, not the other way round — which is the
+entire reason the fixture is a real frame rather than invented JSON.
 
 **Live Binance capture failed before it succeeded.** The first attempt died
 with `invalid peer certificate: UnknownIssuer`. Investigation showed the

@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["crates/astra-types", "crates/astra-record"]
+members = [
+    "crates/astra-book",
+    "crates/astra-record",
+    "crates/astra-types",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +14,7 @@ repository = "https://github.com/VarunGore36/AstralProject"
 rust-version = "1.85"
 
 [workspace.dependencies]
+astra-book = { path = "crates/astra-book" }
 astra-types = { path = "crates/astra-types" }
 clap = { version = "4", features = ["derive"] }
 postcard = { version = "1", features = ["use-std"] }

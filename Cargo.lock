@@ -53,9 +53,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "astra-book"
+version = "0.1.0"
+dependencies = [
+ "astra-types",
+ "thiserror",
+]
+
+[[package]]
 name = "astra-record"
 version = "0.1.0"
 dependencies = [
+ "astra-book",
  "astra-types",
  "clap",
  "ctrlc",

@@ -7,6 +7,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+astra-book.workspace = true
 astra-types.workspace = true
 clap.workspace = true
 ctrlc = "3"

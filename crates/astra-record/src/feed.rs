@@ -1,4 +1,5 @@
-use astra_types::{Channel, Instrument, MarketType, Venue};
+use astra_book::{BookDiff, Level};
+use astra_types::{Channel, Fixed, Instrument, MarketType, Venue};
 use thiserror::Error;
 
 const BINANCE_SPOT_WS: &str = "wss://stream.binance.com:9443/ws";
@@ -50,6 +51,36 @@ fn binance_depth_span(payload: &[u8]) -> Option<UpdateSpan> {
         first: event.first_update_id,
         last: event.last_update_id,
     })
+}
+
+pub fn book_diff(venue: Venue, channel: Channel, payload: &[u8]) -> Option<BookDiff> {
+    match (venue, channel) {
+        (Venue::Binance, Channel::BookDiff) => binance_depth_diff(payload),
+        _ => None,
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct BinanceDepthBook {
+    #[serde(rename = "b")]
+    bids: Vec<(Fixed, Fixed)>,
+    #[serde(rename = "a")]
+    asks: Vec<(Fixed, Fixed)>,
+}
+
+fn binance_depth_diff(payload: &[u8]) -> Option<BookDiff> {
+    let event: BinanceDepthBook = serde_json::from_slice(payload).ok()?;
+    Some(BookDiff {
+        bids: to_levels(event.bids),
+        asks: to_levels(event.asks),
+    })
+}
+
+fn to_levels(levels: Vec<(Fixed, Fixed)>) -> Vec<Level> {
+    levels
+        .into_iter()
+        .map(|(price, quantity)| Level { price, quantity })
+        .collect()
 }
 
 fn binance_stream_url(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
