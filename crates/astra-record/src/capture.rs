@@ -13,6 +13,7 @@ use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket, connect};
 
 use crate::error::RecordError;
+use crate::feed::{self, UpdateSpan};
 use crate::store::ChunkWriter;
 
 pub const MANIFEST_FILE: &str = "manifest.json";
@@ -47,7 +48,9 @@ pub struct CaptureOptions {
 pub struct CaptureOutcome {
     pub capture_id: String,
     pub frames_written: u64,
-    pub gaps_recorded: u64,
+    pub checked_frames: u64,
+    pub connection_gaps: u64,
+    pub sequence_gaps: u64,
     pub stop_reason: String,
 }
 
@@ -55,8 +58,39 @@ pub struct CaptureOutcome {
 struct CaptureState {
     seq: u64,
     frames: u64,
-    gaps: u64,
+    connection_gaps: u64,
     last_frame_at: Option<Timestamp>,
+}
+
+#[derive(Default)]
+struct SequenceTracker {
+    previous_last: Option<u64>,
+    checked: u64,
+    gaps: u64,
+}
+
+impl SequenceTracker {
+    fn reset(&mut self) {
+        self.previous_last = None;
+    }
+
+    fn check(&mut self, span: Option<UpdateSpan>) -> Option<String> {
+        let span = span?;
+        self.checked += 1;
+
+        let previous = self.previous_last.replace(span.last)?;
+
+        let expected = previous + 1;
+        if span.first == expected {
+            return None;
+        }
+
+        self.gaps += 1;
+        Some(format!(
+            "update_id_gap: expected {expected}, saw {}",
+            span.first
+        ))
+    }
 }
 
 enum Disconnect {
@@ -125,6 +159,7 @@ pub fn run_capture(
 
     let mut socket = open_connection(&options.url)?;
     let mut state = CaptureState::default();
+    let mut tracker = SequenceTracker::default();
     let mut session_started = Timestamp::now();
     let mut reconnects_used = 0u32;
     let mut backoff = RECONNECT_INITIAL_BACKOFF;
@@ -149,11 +184,17 @@ pub fn run_capture(
 
         let disconnect = match socket.read() {
             Ok(Message::Text(text)) => {
-                append_frame(&mut writer, &options, &mut state, text.as_bytes())?;
+                append_frame(
+                    &mut writer,
+                    &options,
+                    &mut state,
+                    &mut tracker,
+                    text.as_bytes(),
+                )?;
                 continue;
             }
             Ok(Message::Binary(bytes)) => {
-                append_frame(&mut writer, &options, &mut state, &bytes)?;
+                append_frame(&mut writer, &options, &mut state, &mut tracker, &bytes)?;
                 continue;
             }
             Ok(Message::Close(_)) => Disconnect::VenueClose,
@@ -194,6 +235,8 @@ pub fn run_capture(
             reconnects_used,
             disconnect.gap_reason(),
         )?;
+        state.connection_gaps += 1;
+        tracker.reset();
     };
 
     writer.finish()?;
@@ -205,7 +248,9 @@ pub fn run_capture(
     Ok(CaptureOutcome {
         capture_id: manifest.capture_id.as_str().to_owned(),
         frames_written: state.frames,
-        gaps_recorded: state.gaps,
+        checked_frames: tracker.checked,
+        connection_gaps: state.connection_gaps,
+        sequence_gaps: tracker.gaps,
         stop_reason,
     })
 }
@@ -220,8 +265,17 @@ fn append_frame(
     writer: &mut ChunkWriter,
     options: &CaptureOptions,
     state: &mut CaptureState,
+    tracker: &mut SequenceTracker,
     payload: &[u8],
 ) -> Result<(), RecordError> {
+    let span = feed::update_span(options.instrument.venue(), options.channel, payload);
+
+    if let Some(reason) = tracker.check(span) {
+        let now = Timestamp::now();
+        let started_at = state.last_frame_at.unwrap_or(now);
+        append_gap(writer, options, state, started_at, now, 0, reason)?;
+    }
+
     let record = CaptureRecord {
         seq: state.seq,
         instrument: options.instrument.clone(),
@@ -270,7 +324,6 @@ fn append_gap(
 
     writer.append(&record)?;
     state.seq += 1;
-    state.gaps += 1;
 
     Ok(())
 }
@@ -386,6 +439,10 @@ mod tests {
             .collect()
     }
 
+    fn depth_frame(first: u64, last: u64) -> String {
+        format!(r#"{{"e":"depthUpdate","s":"BTCUSDT","U":{first},"u":{last},"b":[],"a":[]}}"#)
+    }
+
     #[test]
     fn init_writes_layout_and_manifest() {
         let output = temp_directory("init");
@@ -412,7 +469,9 @@ mod tests {
         let outcome = run_capture(options(&output, url), Arc::new(AtomicBool::new(false))).unwrap();
 
         assert_eq!(outcome.frames_written, 3);
-        assert_eq!(outcome.gaps_recorded, 0);
+        assert_eq!(outcome.connection_gaps, 0);
+        assert_eq!(outcome.sequence_gaps, 0);
+        assert_eq!(outcome.checked_frames, 0);
         assert_eq!(outcome.stop_reason, STOP_VENUE_CLOSED);
 
         let records = store::read_all(&output.join(FRAMES_DIR)).unwrap();
@@ -445,7 +504,8 @@ mod tests {
         let outcome = run_capture(options, Arc::new(AtomicBool::new(false))).unwrap();
 
         assert_eq!(outcome.frames_written, 5);
-        assert_eq!(outcome.gaps_recorded, 1);
+        assert_eq!(outcome.connection_gaps, 1);
+        assert_eq!(outcome.sequence_gaps, 0);
         assert_eq!(outcome.stop_reason, STOP_RECONNECT_EXHAUSTED);
 
         let records = store::read_all(&output.join(FRAMES_DIR)).unwrap();
@@ -478,6 +538,84 @@ mod tests {
         let records = store::read_all(&output.join(FRAMES_DIR)).unwrap();
         let gaps = read_gaps(&output);
         assert_eq!(records[0].ts_socket, gaps[0].started_at);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn continuous_update_ids_produce_no_gaps() {
+        let url = serve_connections(vec![vec![
+            depth_frame(100, 110),
+            depth_frame(111, 120),
+            depth_frame(121, 130),
+        ]]);
+        let output = temp_directory("continuous");
+        let options = options(&output, url);
+
+        let outcome = run_capture(options, Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(outcome.frames_written, 3);
+        assert_eq!(outcome.checked_frames, 3);
+        assert_eq!(outcome.sequence_gaps, 0);
+        assert_eq!(outcome.connection_gaps, 0);
+        assert_eq!(store::read_all(&output.join(FRAMES_DIR)).unwrap().len(), 3);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn update_id_gaps_are_detected() {
+        let url = serve_connections(vec![vec![
+            depth_frame(100, 110),
+            depth_frame(111, 120),
+            depth_frame(200, 210),
+        ]]);
+        let output = temp_directory("sequence-gap");
+        let options = options(&output, url);
+
+        let outcome = run_capture(options, Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(outcome.frames_written, 3);
+        assert_eq!(outcome.checked_frames, 3);
+        assert_eq!(outcome.sequence_gaps, 1);
+        assert_eq!(outcome.connection_gaps, 0);
+
+        let records = store::read_all(&output.join(FRAMES_DIR)).unwrap();
+        assert_eq!(records.len(), 4);
+        assert!(records[2].flags.contains(CaptureFlags::SYNTHETIC));
+        assert!(records[2].flags.contains(CaptureFlags::SEQUENCE_GAP));
+        assert!(records[2].flags.contains(CaptureFlags::UNRELIABLE));
+        assert_eq!(records[2].seq, 2);
+        assert_eq!(records[3].seq, 3);
+
+        let gaps = read_gaps(&output);
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].attempts, 0);
+        assert!(gaps[0].reason.contains("update_id_gap"));
+        assert!(gaps[0].reason.contains("expected 121"));
+        assert!(gaps[0].reason.contains("saw 200"));
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn the_sequence_gap_precedes_the_frame_that_revealed_it() {
+        let first = depth_frame(100, 110);
+        let second = depth_frame(500, 510);
+        let url = serve_connections(vec![vec![first.clone(), second.clone()]]);
+        let output = temp_directory("gap-order");
+        let options = options(&output, url);
+
+        run_capture(options, Arc::new(AtomicBool::new(false))).unwrap();
+
+        let records = store::read_all(&output.join(FRAMES_DIR)).unwrap();
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].payload, first.as_bytes());
+        assert!(records[1].flags.contains(CaptureFlags::SEQUENCE_GAP));
+        assert_eq!(records[2].payload, second.as_bytes());
+
+        let gaps = read_gaps(&output);
+        assert_eq!(gaps[0].started_at, records[0].ts_socket);
 
         std::fs::remove_dir_all(&output).unwrap();
     }

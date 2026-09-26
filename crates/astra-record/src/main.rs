@@ -121,7 +121,9 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
     println!("instrument  {instrument}");
     println!("channel     {}", args.channel);
     println!("frames      {}", outcome.frames_written);
-    println!("gaps        {}", outcome.gaps_recorded);
+    println!("checked     {}", outcome.checked_frames);
+    println!("conn_gaps   {}", outcome.connection_gaps);
+    println!("seq_gaps    {}", outcome.sequence_gaps);
     println!("stop_reason {}", outcome.stop_reason);
     println!("manifest    {}", args.output.join(MANIFEST_FILE).display());
 

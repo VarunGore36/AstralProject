@@ -13,9 +13,9 @@ A rigorous "this has no edge" is a successful result here.
 
 - **Done** — core types, chunked capture store with SHA-256 integrity index,
   `astra-record init`, `astra-record capture` verified against the live Binance
-  book-diff feed, reconnect with explicit gap records.
-- **Working on** — venue update-ID continuity checking, a second venue,
-  additional channels.
+  book-diff feed, reconnect with explicit gap records, venue update-ID
+  continuity checking.
+- **Working on** — a second venue, additional channels.
 - **Next (one thing)** — rebuild L2 order books from captured data and validate
   them against exchange-published checksums.
 
@@ -32,9 +32,9 @@ A rigorous "this has no edge" is a successful result here.
 | Chunked record store with SHA-256 integrity index | DONE |
 | Live Binance capture, `book_diff` channel | DONE |
 | Reconnect with explicit gap records | DONE |
+| Venue update-ID continuity checking | DONE |
 | Bybit feed | NOT IMPLEMENTED |
 | Channels other than `book_diff` | NOT IMPLEMENTED |
-| Venue update-ID continuity checking | NOT IMPLEMENTED |
 | Order-book reconstruction | NOT IMPLEMENTED |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -112,7 +112,8 @@ Floating point is for derived analytics only, through
 
 ## Gap records
 
-When a feed drops and is re-established, the recorder writes one synthetic
+Two things produce a gap record: a feed that dropped and was re-established, and
+a discontinuity in the venue's own update sequence. Both write one synthetic
 record into the stream rather than letting the hole go unnoticed. It carries
 `SYNTHETIC | SEQUENCE_GAP | UNRELIABLE` and a JSON payload:
 
@@ -123,9 +124,24 @@ record into the stream rather than letting the hole go unnoticed. It carries
   "reason": "venue_close" }
 ```
 
+`attempts` is the reconnect attempt count and is 0 for sequence gaps. `reason`
+is `venue_close`, `read_error: ...` or `update_id_gap: expected N, saw M`.
+
 A reader that filters out `SYNTHETIC` records sees only venue data; a reader
 that does not will find the gap explicitly marked instead of silently
 absorbing it. `frames_written` in the manifest counts venue frames only.
+
+## Continuity checking
+
+For Binance `book_diff` every event carries `U`, the first update id, and `u`,
+the last. A well-formed stream has each event's `U` equal to the previous
+event's `u` + 1. The recorder checks exactly that and writes the gap record
+before the frame that breaks the rule.
+
+Continuity is only checked where the payload format is understood. Frames that
+cannot be parsed are not checked, and the run reports `checked` alongside
+`frames` so that a zero sequence-gap count is only meaningful when the two
+numbers match.
 
 ## Capture layout
 
@@ -209,10 +225,11 @@ than silently falling back to something else.
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
 - One venue and one channel are connected: Binance `book_diff`. Bybit and every
-  other channel are not implemented.
-- Venue update IDs travel inside the payload but are not checked for continuity
-  yet, so a gap the venue signals in its own sequence would not be caught
-  independently of the connection dropping.
+  other channel are not implemented, so update-ID continuity checking has no
+  rule defined for them yet.
+- Continuity checking assumes the venue stream is strictly sequential. A venue
+  that coalesces or reorders updates would produce false gaps; no such case has
+  been observed on the data captured so far.
 
 ## Verification record
 
@@ -226,11 +243,11 @@ the fact that the code compiles.
 | Chunk store detects a corrupted chunk | test flips one byte and expects an integrity error | VERIFIED |
 | Integrity hashes are truthful | recorded SHA-256 cross-checked against the system `sha256sum` | VERIFIED |
 | Capture writes frames from a real WebSocket | end-to-end run: handshake, frames, manifest and index on disk | VERIFIED |
-| Live Binance capture | 30 second run: 303 frames at the expected 10/s rate, payloads are `depthUpdate` events, chunk hash matches the system `sha256sum` | VERIFIED |
+| Live Binance capture | 60 second run: 601 frames at the expected 10/s rate, payloads are `depthUpdate` events, chunk hash matches the system `sha256sum` | VERIFIED |
 | Reconnect writes gap records and continues | unit tests drop the feed mid-capture and check the marker, its span and the continued sequence | VERIFIED |
+| Update-ID continuity checking | parser tested against a real captured Binance frame; live run checked 601 of 601 frames and reported 0 gaps; unit tests inject a discontinuity and confirm it is detected and marked | VERIFIED |
 | Feed URLs for Binance spot and perp | unit tests | VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
-| Venue update-ID continuity | none | NOT IMPLEMENTED |
 | Order-book reconstruction | none | NOT IMPLEMENTED |
 
 ## Failures encountered
@@ -249,6 +266,12 @@ provider explicitly.
 server that closed the connection after 50 ms, so the close beat the limit and
 the capture reported the wrong stop reason. The capture loop was correct; the
 harness was not.
+
+**A gap counter counted the wrong kind of gap.** The first continuity checker
+incremented the connection-gap counter from the shared gap-writing function, so
+a sequence gap was tallied as a connection gap. The test failed on the count
+rather than on the detection, which is what tests are for. Fixed by removing
+the counter from the writer and letting the caller classify each record.
 
 **Live Binance capture failed before it succeeded.** The first attempt died
 with `invalid peer certificate: UnknownIssuer`. Investigation showed the

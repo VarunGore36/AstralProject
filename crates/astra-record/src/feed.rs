@@ -23,6 +23,35 @@ pub fn stream_url(instrument: &Instrument, channel: Channel) -> Result<String, F
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct UpdateSpan {
+    pub first: u64,
+    pub last: u64,
+}
+
+pub fn update_span(venue: Venue, channel: Channel, payload: &[u8]) -> Option<UpdateSpan> {
+    match (venue, channel) {
+        (Venue::Binance, Channel::BookDiff) => binance_depth_span(payload),
+        _ => None,
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct BinanceDepthEvent {
+    #[serde(rename = "U")]
+    first_update_id: u64,
+    #[serde(rename = "u")]
+    last_update_id: u64,
+}
+
+fn binance_depth_span(payload: &[u8]) -> Option<UpdateSpan> {
+    let event: BinanceDepthEvent = serde_json::from_slice(payload).ok()?;
+    Some(UpdateSpan {
+        first: event.first_update_id,
+        last: event.last_update_id,
+    })
+}
+
 fn binance_stream_url(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
     let root = match instrument.market_type() {
         MarketType::Spot => BINANCE_SPOT_WS,
@@ -109,5 +138,21 @@ mod tests {
             ),
             Err(FeedError::NotImplemented { .. })
         ));
+    }
+
+    #[test]
+    fn a_real_captured_frame_yields_its_update_span() {
+        let payload = include_str!("../testdata/binance_depth_update.json");
+        let span = update_span(Venue::Binance, Channel::BookDiff, payload.as_bytes()).unwrap();
+        assert_eq!(span.first, 100697441890);
+        assert_eq!(span.last, 100697441922);
+    }
+
+    #[test]
+    fn payloads_without_update_ids_are_not_checked() {
+        assert!(update_span(Venue::Binance, Channel::BookDiff, b"{\"e\":\"trade\"}").is_none());
+        assert!(update_span(Venue::Binance, Channel::BookDiff, b"not json").is_none());
+        assert!(update_span(Venue::Binance, Channel::BookDiff, b"").is_none());
+        assert!(update_span(Venue::Binance, Channel::Trade, b"{\"U\":1,\"u\":2}").is_none());
     }
 }
