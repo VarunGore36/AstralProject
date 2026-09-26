@@ -31,6 +31,7 @@ impl CaptureFlags {
     pub const STALE: Self = CaptureFlags(1 << 3);
     pub const UNRELIABLE: Self = CaptureFlags(1 << 4);
     pub const TRUNCATED: Self = CaptureFlags(1 << 5);
+    pub const SYNTHETIC: Self = CaptureFlags(1 << 6);
 
     pub const fn bits(self) -> u32 {
         self.0
@@ -58,6 +59,14 @@ pub struct CaptureRecord {
     pub ts_exchange: Option<Timestamp>,
     pub payload: Vec<u8>,
     pub flags: CaptureFlags,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct GapMarker {
+    pub started_at: Timestamp,
+    pub ended_at: Timestamp,
+    pub attempts: u32,
+    pub reason: String,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]

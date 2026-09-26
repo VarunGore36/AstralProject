@@ -56,6 +56,8 @@ struct CaptureArgs {
     max_frames: Option<u64>,
     #[arg(long, value_name = "URL")]
     url: Option<String>,
+    #[arg(long, value_name = "COUNT", default_value_t = 5)]
+    max_reconnects: u32,
 }
 
 fn main() -> ExitCode {
@@ -108,6 +110,7 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
         url: url.clone(),
         max_frames: args.max_frames,
         duration: args.duration_secs.map(Duration::from_secs),
+        max_reconnects: args.max_reconnects,
     };
 
     let outcome = run_capture(options, interrupted)?;
@@ -118,6 +121,7 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
     println!("instrument  {instrument}");
     println!("channel     {}", args.channel);
     println!("frames      {}", outcome.frames_written);
+    println!("gaps        {}", outcome.gaps_recorded);
     println!("stop_reason {}", outcome.stop_reason);
     println!("manifest    {}", args.output.join(MANIFEST_FILE).display());
 

@@ -12,9 +12,9 @@ A rigorous "this has no edge" is a successful result here.
 ## Status
 
 - **Done** — core types, chunked capture store with SHA-256 integrity index,
-  `astra-record init`, `astra-record capture` against a real WebSocket feed for
-  Binance book-diff.
-- **Working on** — sequence tracking, reconnect and resync, a second venue,
+  `astra-record init`, `astra-record capture` verified against the live Binance
+  book-diff feed, reconnect with explicit gap records.
+- **Working on** — venue update-ID continuity checking, a second venue,
   additional channels.
 - **Next (one thing)** — rebuild L2 order books from captured data and validate
   them against exchange-published checksums.
@@ -27,11 +27,14 @@ A rigorous "this has no edge" is a successful result here.
 | `Fixed` fixed-point decimal | DONE |
 | `Timestamp` nanosecond clock value | DONE |
 | Venue, market type, symbol, channel identifiers | DONE |
-| `CaptureRecord`, `CaptureManifest`, `CaptureFlags` | DONE |
+| `CaptureRecord`, `CaptureManifest`, `CaptureFlags`, `GapMarker` | DONE |
 | `astra-record init` capture layout | DONE |
 | Chunked record store with SHA-256 integrity index | DONE |
-| WebSocket ingestion | PARTIALLY IMPLEMENTED |
-| Live raw frame capture | PARTIALLY IMPLEMENTED |
+| Live Binance capture, `book_diff` channel | DONE |
+| Reconnect with explicit gap records | DONE |
+| Bybit feed | NOT IMPLEMENTED |
+| Channels other than `book_diff` | NOT IMPLEMENTED |
+| Venue update-ID continuity checking | NOT IMPLEMENTED |
 | Order-book reconstruction | NOT IMPLEMENTED |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -60,9 +63,8 @@ flowchart LR
 | Deterministic replay | NOT IMPLEMENTED |
 | Research results | NOT IMPLEMENTED |
 
-Partially implemented means one venue, one channel: frames can be captured from
-a live WebSocket, stamped, verified and read back today. The rest of the wedge
-is still open.
+Partially implemented means one venue and one channel. Binance `book_diff` is
+connected and verified; Bybit and every other channel are not connected yet.
 
 ## Repository layout
 
@@ -106,6 +108,24 @@ Floating point is for derived analytics only, through
 | `STALE` | the data was too old to trust at capture time |
 | `UNRELIABLE` | the surrounding window cannot be trusted |
 | `TRUNCATED` | the payload was cut short |
+| `SYNTHETIC` | the record was written by the recorder, not by the venue |
+
+## Gap records
+
+When a feed drops and is re-established, the recorder writes one synthetic
+record into the stream rather than letting the hole go unnoticed. It carries
+`SYNTHETIC | SEQUENCE_GAP | UNRELIABLE` and a JSON payload:
+
+```json
+{ "started_at": 1790420019514000000,
+  "ended_at": 1790420021770000000,
+  "attempts": 1,
+  "reason": "venue_close" }
+```
+
+A reader that filters out `SYNTHETIC` records sees only venue data; a reader
+that does not will find the gap explicitly marked instead of silently
+absorbing it. `frames_written` in the manifest counts venue frames only.
 
 ## Capture layout
 
@@ -164,9 +184,13 @@ cargo run -p astra-record -- capture \
   --duration-secs 3600
 ```
 
-The run stops at the end of the duration, at `--max-frames`, on Ctrl-C or when
-the venue closes the connection, and records which of those happened in the
+The run stops at the end of the duration, at `--max-frames`, on Ctrl-C, or when
+the feed cannot be kept alive, and records which of those happened in the
 manifest. `--url` overrides the derived feed for local testing.
+
+A dropped connection is re-established up to `--max-reconnects` times (default
+5) with exponential backoff, and every reconnection writes a gap record. Pass
+`--max-reconnects 0` to stop at the first drop instead.
 
 ## Feeds
 
@@ -184,8 +208,11 @@ than silently falling back to something else.
   out of the payload is normalisation work and happens later.
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
-- One venue and one channel are connected. Sequence tracking, reconnect and
-  resync are not implemented yet, so a dropped connection ends the capture.
+- One venue and one channel are connected: Binance `book_diff`. Bybit and every
+  other channel are not implemented.
+- Venue update IDs travel inside the payload but are not checked for continuity
+  yet, so a gap the venue signals in its own sequence would not be caught
+  independently of the connection dropping.
 
 ## Verification record
 
@@ -198,10 +225,12 @@ the fact that the code compiles.
 | Chunk store round-trips records byte for byte | unit tests | VERIFIED |
 | Chunk store detects a corrupted chunk | test flips one byte and expects an integrity error | VERIFIED |
 | Integrity hashes are truthful | recorded SHA-256 cross-checked against the system `sha256sum` | VERIFIED |
-| Capture writes frames from a real WebSocket | end-to-end run: handshake, five frames, manifest and index on disk | VERIFIED |
+| Capture writes frames from a real WebSocket | end-to-end run: handshake, frames, manifest and index on disk | VERIFIED |
+| Live Binance capture | 30 second run: 303 frames at the expected 10/s rate, payloads are `depthUpdate` events, chunk hash matches the system `sha256sum` | VERIFIED |
+| Reconnect writes gap records and continues | unit tests drop the feed mid-capture and check the marker, its span and the continued sequence | VERIFIED |
 | Feed URLs for Binance spot and perp | unit tests | VERIFIED |
-| Live Binance connection | none | NOT VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
+| Venue update-ID continuity | none | NOT IMPLEMENTED |
 | Order-book reconstruction | none | NOT IMPLEMENTED |
 
 ## Failures encountered
@@ -221,22 +250,20 @@ server that closed the connection after 50 ms, so the close beat the limit and
 the capture reported the wrong stop reason. The capture loop was correct; the
 harness was not.
 
-**Live Binance capture is unverified.** The build environment intercepts TLS to
-`binance.com` through a Fortinet firewall: the certificate presented for
-`*.binance.com` is issued by `Fortinet; Certificate Authority`, not a public
-authority, and the endpoint answers 403. rustls correctly refuses with
-`invalid peer certificate: UnknownIssuer`. That is an environment constraint,
-not a result about the code. It also means the claim "this captures from
-Binance" is still open until it runs on a clean network:
+**Live Binance capture failed before it succeeded.** The first attempt died
+with `invalid peer certificate: UnknownIssuer`. Investigation showed the
+network was intercepting TLS to `binance.com` with a Fortinet firewall: the
+certificate presented for `*.binance.com` was issued by `Fortinet; Certificate
+Authority` rather than a public authority, and the REST endpoint answered 403.
+rustls was right to refuse it.
 
-```sh
-cargo run -p astra-record -- capture --output ./capture \
-  --venue binance --market spot --symbol BTC/USDT --channel book_diff \
-  --duration-secs 60
-```
-
-A `UnknownIssuer` error there too means something on that network is doing TLS
-inspection, and it will break any rustls or Go client, not just this one.
+A later retry succeeded — the interception was gone, both endpoints presented
+valid DigiCert certificates, and the capture ran normally. So that was a
+transient network condition, not a property of the code or of the venue. It is
+recorded because the first result was a real failure and the diagnosis is worth
+keeping: if `UnknownIssuer` reappears, something on that network is doing TLS
+inspection, and it will break any rustls or Go client rather than this one
+specifically.
 
 ## Working rules
 
