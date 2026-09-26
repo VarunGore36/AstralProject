@@ -2,6 +2,10 @@
 
 **An open, reproducible measurement layer for crypto markets.**
 
+**Live site: [astral-project-ruddy.vercel.app](https://astral-project-ruddy.vercel.app/)**
+
+![Astral Project website](website/screenshot.png)
+
 Astra makes it possible to determine whether a trading idea actually survives
 fees, slippage, latency, liquidity and realistic fills — and to reproduce that
 determination later.
@@ -44,7 +48,7 @@ A rigorous "this has no edge" is a successful result here.
 | Bootstrap verified against a live venue snapshot | DONE |
 | Top-of-book match against an independent venue reference | NOT VERIFIED |
 | Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
-| Project website (`website/`: static, framework-free) | DONE |
+| Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |
