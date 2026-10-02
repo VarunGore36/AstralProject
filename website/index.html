@@ -128,7 +128,7 @@ stop_reason duration_elapsed</code></pre>
         <div class="grid grid-3">
           <article class="card reveal"><h3>Lossless capture</h3><p>Raw frames written to compressed, content-addressed chunks with capture timestamps and a SHA-256 integrity index. Binance depth diffs, partial books, trades, book ticker, funding and liquidations — plus Bybit order books on spot and perp. Read-to-stored p99 around a millisecond. Drops and gaps are recorded as data, never absorbed silently.</p></article>
           <article class="card reveal"><h3>Checked reconstruction</h3><p>L2 books rebuilt from diffs on a snapshot bootstrap, with venue update-ID continuity enforced. A broken book rejects events until a new snapshot — it never silently resumes. The live book updates as frames arrive at single-digit-microsecond p50.</p></article>
-          <article class="card reveal"><h3>Deterministic replay</h3><p>Same capture in, byte-identical results out, on any machine. The precondition for every claim the project will ever make.</p></article>
+          <article class="card reveal"><h3>Deterministic replay</h3><p>Same capture replayed twice: identical signal hashes, verified live. Cross-machine proof awaits a second machine — stated, not assumed.</p></article>
         </div>
       </div>
     </section>
@@ -197,6 +197,11 @@ stop_reason duration_elapsed</code></pre>
             <p class="mono-label status-done">Verified · live venue data</p>
             <h3>Coinbase trades and top-of-book, live</h3>
             <p>Third venue connected: 33 genuine matches and 35 tickers captured live. No order book exists publicly, and the shared sequence admits no strict rule — so both report unchecked, honestly.</p>
+          </article>
+          <article class="card research reveal">
+            <p class="mono-label status-done">Verified · live replay</p>
+            <h3>Same capture, same hash, different seeds</h3>
+            <p>96 live frames replayed under two seeds: identical signal hashes. Seed-independence was expected — now it is measured.</p>
           </article>
           <article class="card research reveal">
             <p class="mono-label status-next">In progress</p>
