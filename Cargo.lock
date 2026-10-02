@@ -376,6 +376,7 @@ dependencies = [
  "astra-book",
  "astra-record",
  "astra-types",
+ "clap",
  "rand",
  "serde_json",
  "sha2",

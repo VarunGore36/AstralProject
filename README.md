@@ -564,6 +564,17 @@ recorded above. A passing suite is the floor, not the ceiling.
 
 Recorded rather than tidied away.
 
+**A flaky test was fixed at the mechanism, not the odds.** One test failed
+about one run in four under parallel load, always with one frame missing.
+Longer sleeps would only have hidden it. The cause was TCP, not timing: the
+test client sends a subscribe message the test server never reads, and
+closing a socket with unread received bytes makes the kernel send RST
+instead of FIN — discarding whatever the client had not read yet. Only
+Bybit-option tests flaked, because only they make the client send anything;
+the Binance tests were immune by accident, not by design. The test server
+now drains incoming traffic after its close frame before dropping the
+socket, and the flake has not recurred in 26 runs.
+
 **The TLS path was completely broken.** rustls panicked on the first secure
 connection because no crypto provider was installed — `tungstenite` enables
 rustls without a backend, so every `wss://` connection would have crashed on

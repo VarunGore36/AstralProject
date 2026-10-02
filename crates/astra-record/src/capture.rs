@@ -499,12 +499,19 @@ mod tests {
                 for frame in frames {
                     let _ = socket.send(Message::text(frame));
                 }
-                thread::sleep(Duration::from_millis(20));
-                let _ = socket.close(None);
+                close_cleanly(&mut socket);
             }
         });
 
         format!("ws://{address}")
+    }
+
+    fn close_cleanly(socket: &mut WebSocket<TcpStream>) {
+        let _ = socket.close(None);
+        let _ = socket
+            .get_mut()
+            .set_read_timeout(Some(Duration::from_millis(500)));
+        while socket.read().is_ok() {}
     }
 
     fn serve_open() -> String {
@@ -842,13 +849,12 @@ mod tests {
             MarketType::Spot,
             Symbol::new("BTC/USDT").unwrap(),
         );
-        let outcome = run_capture(
-            options_for(&output, url, bybit),
-            Arc::new(AtomicBool::new(false)),
-        )
-        .unwrap();
+        let mut options = options_for(&output, url, bybit);
+        options.max_frames = Some(2);
+        let outcome = run_capture(options, Arc::new(AtomicBool::new(false))).unwrap();
 
         assert_eq!(outcome.frames_written, 2);
+        assert_eq!(outcome.stop_reason, STOP_MAX_FRAMES);
         assert_eq!(outcome.book_updates, 2);
         assert_eq!(outcome.book_latency.samples, 2);
         assert_eq!(outcome.sequence_gaps, 0);
