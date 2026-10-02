@@ -25,6 +25,7 @@ A rigorous "this has no edge" is a successful result here.
 - [Continuity checking](#continuity-checking)
 - [Order book](#order-book)
 - [Auditing a capture](#auditing-a-capture)
+- [Replaying a capture](#replaying-a-capture)
 - [Capture layout](#capture-layout)
 - [Chunk format](#chunk-format)
 - [Quickstart](#quickstart)
@@ -149,7 +150,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-book` | Order-book state: level updates, top of book, invariants |
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` only) |
-| `crates/astra-replay` | Deterministic replay event core (library; CLI pending) |
+| `crates/astra-replay` | Deterministic replay: event core, `book-top` strategy, CLI |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables (design only, not implemented) |
 | `docs/replay-design.md` | The v1 design for the deterministic replay engine (design only, not implemented) |
 | `ROADMAP.md` | Gates with measurable definitions of done |
@@ -306,6 +307,31 @@ whose format is understood, gap records with their reasons, and the time span.
 It streams chunk by chunk, so a multi-day capture never needs to fit in memory.
 A corrupt chunk fails the run with an integrity error; gaps and breaks are
 reported as findings with a verdict of `healthy` or `issues found, see above`.
+
+## Replaying a capture
+
+```sh
+cargo run -p astra-replay -- --input ./capture --seed 7 --strategy book-top
+```
+
+Re-emits the capture's events in order through a strategy. `book-top`
+maintains a live book and emits top-of-book per event; every signal feeds a
+SHA-256 hash printed at the end. Same capture plus same seed always yields
+the same hash — replay twice with different seeds and differing hashes mean
+the strategy depends on randomness it should not.
+
+```text
+frames      96
+events      96
+gaps        0
+skipped     0
+signals     96
+signal_hash f66ae25f...
+```
+
+Gap markers arrive as gap events, unparseable frames and other channels are
+counted as skipped, and a torn manifest fails loudly instead of replaying
+a capture that is not whole.
 
 ## Capture layout
 
