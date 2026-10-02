@@ -4,6 +4,7 @@ members = [
     "crates/astra-book",
     "crates/astra-normalize",
     "crates/astra-record",
+    "crates/astra-replay",
     "crates/astra-types",
 ]
 
@@ -17,11 +18,14 @@ rust-version = "1.85"
 [workspace.dependencies]
 astra-book = { path = "crates/astra-book" }
 astra-normalize = { path = "crates/astra-normalize" }
+astra-record = { path = "crates/astra-record" }
+astra-replay = { path = "crates/astra-replay" }
 astra-types = { path = "crates/astra-types" }
 arrow = "60"
 chrono = "0.4"
 parquet = "60"
 clap = { version = "4", features = ["derive"] }
+rand = "0.9"
 postcard = { version = "1", features = ["use-std"] }
 rustls = { version = "0.23", features = ["ring"] }
 serde = { version = "1", features = ["derive"] }

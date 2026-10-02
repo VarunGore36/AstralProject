@@ -370,6 +370,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "astra-replay"
+version = "0.1.0"
+dependencies = [
+ "astra-book",
+ "astra-record",
+ "astra-types",
+ "rand",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "astra-types"
 version = "0.1.0"
 dependencies = [

@@ -87,6 +87,7 @@ A rigorous "this has no edge" is a successful result here.
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Normalized event schema v1 (specification only, see `docs/`) | DONE |
 | Replay engine design v1 (specification only, see `docs/`) | DONE |
+| Replay event core (`astra-replay` lib: events, seeded context, hashing) | DONE |
 | Normalizer `book_diff` to Parquet (`astra-normalize`) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -147,6 +148,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-book` | Order-book state: level updates, top of book, invariants |
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` only) |
+| `crates/astra-replay` | Deterministic replay event core (library; CLI pending) |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables (design only, not implemented) |
 | `docs/replay-design.md` | The v1 design for the deterministic replay engine (design only, not implemented) |
 | `ROADMAP.md` | Gates with measurable definitions of done |
