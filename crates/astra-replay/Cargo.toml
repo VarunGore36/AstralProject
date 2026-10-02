@@ -6,10 +6,15 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[[bin]]
+name = "astra-replay"
+path = "src/main.rs"
+
 [dependencies]
 astra-book.workspace = true
 astra-record.workspace = true
 astra-types.workspace = true
+clap.workspace = true
 rand.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

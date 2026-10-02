@@ -50,6 +50,19 @@ impl Context {
             payload,
         });
     }
+
+    pub fn signals(&self) -> &[Signal] {
+        &self.signals
+    }
+
+    #[cfg(test)]
+    pub fn for_tests(seed: u64) -> Self {
+        Context {
+            now: Timestamp::from_unix_nanos(0),
+            rng: StdRng::seed_from_u64(seed),
+            signals: Vec::new(),
+        }
+    }
 }
 
 pub trait Strategy {
