@@ -125,21 +125,29 @@ flowchart LR
 | Raw immutable frames | PARTIALLY IMPLEMENTED |
 | Compressed chunks | DONE |
 | Normalised Parquet | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, `top_of_book` (`astra-normalize`); remaining channels counted and skipped |
-| Deterministic replay | NOT IMPLEMENTED |
+| Deterministic replay | PARTIALLY IMPLEMENTED — event core, strategies, and CLI exist with live-verified determinism; cross-machine proof open |
 | Research results | NOT IMPLEMENTED |
 
-Partially implemented means one venue, six mapped channels. Every mapped Binance
-channel is capturable; only `book_diff` has parsing and continuity rules, which
-is what the `checked` counter in a capture run reports on. `open_interest` has
-no native stream and is deliberately unmapped.
+Partially implemented means three venues with uneven depth. Every mapped
+channel is capturable; parsing rules exist for `book_diff`, `trade`, and
+top-of-book, while continuity rules exist only where the venue offers a
+checkable sequence (Binance spans, Bybit versions). `open_interest` has
+no native stream anywhere and is deliberately unmapped.
 
 ## Repository layout
 
 ```mermaid
 flowchart TD
+    RP[astra-replay<br/>events · strategies · CLI]
+    NZ[astra-normalize<br/>capture to Parquet]
     RC[astra-record<br/>capture · check · reconstruct · verify]
     BK[astra-book<br/>OrderBook · Reconstructor]
     RT[astra-types<br/>Fixed · Timestamp · records]
+    RP --> BK
+    RP --> RC
+    RP --> RT
+    NZ --> RC
+    NZ --> RT
     RC --> BK
     RC --> RT
     BK --> RT
