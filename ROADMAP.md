@@ -12,7 +12,7 @@ own book reconstruction is correct.
 | Sequence gaps are handled | fewer than 1 unexplained gap per instrument day over the soak, every gap recorded and the window marked unreliable | PARTIAL — Binance span gaps and Bybit version gaps are recorded and marked on both venues, the rate over a soak is not measured |
 | Processing latency | p50 and p99 socket read to book ready published per venue, target p99 under 5 ms on reference hardware | PARTIAL — store half (p99 ~1ms) and book half (Binance p99 68µs, Bybit p99 32µs) measured live on two venues, both far under target. Not yet a published reference benchmark on fixed hardware |
 | Determinism | ten replays of one captured day produce byte identical normalised output and identical signals | PARTIAL — the normalizer is proven byte-deterministic (same capture twice, identical SHA-256, CI-enforced); replay engine built through CLI with seed-independent live hashes; ten-replay ritual performed on a live 151-frame capture with ten identical hashes; cross-machine proof still open |
-| Cross machine reproducibility | the same experiment reproduces metrics exactly on a second machine | OPEN |
+| Cross machine reproducibility | the same experiment reproduces metrics exactly on a second machine | OPEN — procedure defined in `docs/cross-machine-repro.md` (healthy verdicts + Parquet tree hash + signal_hash must all match); no second-machine run yet |
 
 Scope: Binance, Bybit, and Coinbase spot, BTC/USDT, ETH/USDT, and BTC/USD, spot and USDT perpetual.
 Channels: book diff, book snapshot, trades, book ticker, funding, open interest,

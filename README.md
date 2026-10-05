@@ -609,6 +609,15 @@ named reference hardware and not from a soak. Reproduce with any capture: the
 `latency_us` and `book_us` lines are the benchmark. A published reference
 benchmark on fixed hardware is still open (see ROADMAP Gate 1).
 
+### Cross-machine reproduction
+
+Procedure defined in `docs/cross-machine-repro.md`, execution open. Same
+capture bytes + same commit + same seed must yield equal `healthy` verdicts,
+equal Parquet tree hashes, and equal `signal_hash` on both machines — no
+"close enough". The first same-OS, same-commit run flips ROADMAP Gate 1
+"Cross machine reproducibility" from OPEN to VERIFIED (or records exactly
+which equality broke).
+
 | Claim | Evidence | Status |
 | --- | --- | --- |
 | Value types round-trip exactly | unit tests, `cargo test --workspace` | VERIFIED |

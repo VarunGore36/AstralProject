@@ -128,7 +128,7 @@ stop_reason duration_elapsed</code></pre>
         <div class="grid grid-3">
           <article class="card reveal"><h3>Lossless capture</h3><p>Raw frames written to compressed, content-addressed chunks with capture timestamps and a SHA-256 integrity index. Binance depth diffs, partial books, trades, book ticker, funding and liquidations — plus Bybit order books on spot and perp. Read-to-stored p99 around a millisecond on live feeds (per-venue table and methodology in the README verification record — live-measured, not reference hardware). Drops and gaps are recorded as data, never absorbed silently.</p></article>
           <article class="card reveal"><h3>Checked reconstruction</h3><p>L2 books rebuilt from diffs on a snapshot bootstrap, with venue update-ID continuity enforced. A broken book rejects events until a new snapshot — it never silently resumes. The live book updates as frames arrive at single-digit-microsecond p50 (Binance p99 68µs, Bybit p99 32µs, live-measured).</p></article>
-          <article class="card reveal"><h3>Deterministic replay</h3><p>Same capture replayed twice: identical signal hashes, verified live — over book diffs, trade prints (bundles expanded per print), and top-of-book. Cross-machine proof awaits a second machine — stated, not assumed.</p></article>
+          <article class="card reveal"><h3>Deterministic replay</h3><p>Same capture replayed twice: identical signal hashes, verified live — over book diffs, trade prints (bundles expanded per print), and top-of-book. Cross-machine proof awaits a second machine — the procedure is written (<code>docs/cross-machine-repro.md</code>), stated, not assumed.</p></article>
         </div>
       </div>
     </section>
