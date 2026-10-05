@@ -589,6 +589,26 @@ outside the bootstrap, yet present in references. The gradient is exactly
 what partial-bootstrap theory predicts: accuracy decays with depth, because
 deep levels update rarely.
 
+### Latency benchmark (live-measured, not reference hardware)
+
+Two halves, measured separately on live feeds and printed by every capture:
+
+```text
+latency_us  p50 108.0 p99 761.0 max 1400.0 (300 frames, read to stored)
+book_us     p50 15.0 p99 68.0 max … (272 updates, read to book-updated)
+```
+
+| Half | What is timed | Binance spot | Bybit spot | Target |
+| --- | --- | --- | --- | --- |
+| Store | socket-read → record-appended in the memory buffer | p50 108µs / p99 761µs / max 1.4ms (≈300 frames) | p50 130µs / p99 1076µs / max 2.2ms (≈300 frames) | p99 < 5ms |
+| Book | socket-read → book-updated (live book) | p50 15µs / p99 68µs (272 updates, partial book — no REST bootstrap at startup) | p50 6µs / p99 32µs (730 updates, complete via in-band snapshots) | p99 < 5ms |
+
+Methodology, read before citing: chunk compression happens later on roll,
+there is no fsync, and the numbers come from two live 30s runs — not from
+named reference hardware and not from a soak. Reproduce with any capture: the
+`latency_us` and `book_us` lines are the benchmark. A published reference
+benchmark on fixed hardware is still open (see ROADMAP Gate 1).
+
 | Claim | Evidence | Status |
 | --- | --- | --- |
 | Value types round-trip exactly | unit tests, `cargo test --workspace` | VERIFIED |
