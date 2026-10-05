@@ -42,10 +42,35 @@ cmd_status() {
 }
 
 cmd_check() {
-  streams | while read -r name venue market symbol channel url; do
+  tmp="$(mktemp)"
+  streams > "$tmp"
+  failures=0
+  while read -r name venue market symbol channel url; do
     echo "=== $name ==="
-    $BIN check --input "$SOAK/$name" 2>&1 | tail -n 14 || true
-  done
+    if output="$($BIN check --input "$SOAK/$name" 2>&1)"; then
+      echo "$output" | tail -n 14
+      case "$output" in
+        *"verdict     healthy"*)
+          echo "verdict     $name healthy"
+          ;;
+        *)
+          echo "verdict     $name ISSUES (see above)"
+          failures=$((failures + 1))
+          ;;
+      esac
+    else
+      echo "$output" | tail -n 14
+      echo "verdict     $name ERROR (check failed)"
+      failures=$((failures + 1))
+    fi
+  done < "$tmp"
+  rm -f "$tmp"
+  if [ "$failures" -eq 0 ]; then
+    echo "soak_verdict healthy (all streams)"
+  else
+    echo "soak_verdict issues found: $failures stream(s)"
+  fi
+  return "$failures"
 }
 
 case "${1:-}" in

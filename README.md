@@ -323,6 +323,22 @@ whose format is understood, gap records with their reasons, and the time span.
 It streams chunk by chunk, so a multi-day capture never needs to fit in memory.
 A corrupt chunk fails the run with an integrity error; gaps and breaks are
 reported as findings with a verdict of `healthy` or `issues found, see above`.
+Note the exit-code contract: `check` exits non-zero only when the audit itself
+fails (corrupt chunk, torn manifest, unreadable input). An `issues found`
+verdict still exits zero — the findings are the result, not a crash.
+
+Judging the soak is mechanical:
+
+```sh
+ops/soak.sh check
+```
+
+prints a per-stream `verdict <name> healthy|ISSUES|ERROR` plus a final
+`soak_verdict` line, and exits non-zero when any stream is not healthy.
+Gate 1 passes a stream when `check` is `healthy`: zero sequence breaks,
+every chunk hash-verified, and every gap recorded with its window marked
+unreliable. The gap-rate bar (<1 unexplained gap per instrument-day) is read
+off the `gap` lines over the 72h window, not asserted from short runs.
 
 ## Replaying a capture
 
