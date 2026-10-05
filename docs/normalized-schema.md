@@ -82,9 +82,10 @@ One row per top-of-book update (Binance `bookTicker`, Coinbase `ticker`).
 | --- | --- | --- |
 | `venue`, `market_type`, `symbol` | strings | as above |
 | `ts_exchange`, `ts_socket`, `ts_ready` | int64 ns | `ts_ready` **not captured yet** |
-| `best_bid`, `best_bid_qty` | fixed decimal, nullable | |
-| `best_ask`, `best_ask_qty` | fixed decimal, nullable | |
+| `best_bid`, `best_bid_qty` | fixed decimal, nullable | null only on synthetic gap rows |
+| `best_ask`, `best_ask_qty` | fixed decimal, nullable | null only on synthetic gap rows |
 | `capture_id`, `seq`, `flags`, `synthetic` | | as above |
+| `gap_reason`, `gap_attempts`, `gap_started`, `gap_ended` | nullable | as in `book_diff`; gap markers arrive per channel |
 
 ### `funding` and `liquidation`
 

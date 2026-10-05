@@ -64,18 +64,21 @@ pub fn normalize(input: &Path, output: &Path) -> Result<NormalizeSummary, Normal
 
     let mut diff_rows = Vec::with_capacity(records.len());
     let mut trade_rows = Vec::new();
+    let mut top_book_rows = Vec::new();
     let mut skipped_unsupported_channel = 0u64;
 
     for record in &records {
         match record.channel {
             Channel::BookDiff => diff_rows.push(book_diff_row(&manifest, record)?),
             Channel::Trade => trade_rows.extend(trade_rows_for(&manifest, record)?),
+            Channel::BookTicker => top_book_rows.push(top_book_row(&manifest, record)?),
             _ => skipped_unsupported_channel += 1,
         }
     }
 
     validate_batch(&diff_rows)?;
     validate_trades(&trade_rows)?;
+    validate_top_books(&top_book_rows)?;
 
     let mut files = Vec::new();
     files.extend(write_grouped(output, &diff_rows, |path, rows| {
@@ -84,10 +87,13 @@ pub fn normalize(input: &Path, output: &Path) -> Result<NormalizeSummary, Normal
     files.extend(write_grouped(output, &trade_rows, |path, rows| {
         write_trade_batch(path, rows)
     })?);
+    files.extend(write_grouped(output, &top_book_rows, |path, rows| {
+        write_top_book_batch(path, rows)
+    })?);
 
     Ok(NormalizeSummary {
         records: records.len() as u64,
-        rows_written: (diff_rows.len() + trade_rows.len()) as u64,
+        rows_written: (diff_rows.len() + trade_rows.len() + top_book_rows.len()) as u64,
         skipped_unsupported_channel,
         files,
     })
@@ -402,6 +408,129 @@ fn validate_trades(rows: &[TradeRow]) -> Result<(), NormalizeError> {
     Ok(())
 }
 
+#[derive(Clone, Debug)]
+struct TopBookRow {
+    venue: String,
+    market_type: String,
+    symbol: String,
+    channel: String,
+    ts_exchange: Option<i64>,
+    ts_socket: i64,
+    best_bid: Option<i128>,
+    best_bid_qty: Option<i128>,
+    best_ask: Option<i128>,
+    best_ask_qty: Option<i128>,
+    capture_id: String,
+    seq: u64,
+    flags: u32,
+    synthetic: bool,
+    gap_reason: Option<String>,
+    gap_attempts: Option<u32>,
+    gap_started: Option<i64>,
+    gap_ended: Option<i64>,
+}
+
+impl Partitioned for TopBookRow {
+    fn ts_socket(&self) -> i64 {
+        self.ts_socket
+    }
+    fn venue(&self) -> &str {
+        &self.venue
+    }
+    fn market_type(&self) -> &str {
+        &self.market_type
+    }
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+    fn channel(&self) -> &str {
+        &self.channel
+    }
+}
+
+fn top_book_row(
+    manifest: &CaptureManifest,
+    record: &astra_types::CaptureRecord,
+) -> Result<TopBookRow, NormalizeError> {
+    let venue = record.instrument.venue();
+    let mut row = TopBookRow {
+        venue: venue.to_string(),
+        market_type: record.instrument.market_type().to_string(),
+        symbol: record.instrument.symbol().to_string(),
+        channel: record.channel.to_string(),
+        ts_exchange: record.ts_exchange.map(|timestamp| timestamp.unix_nanos()),
+        ts_socket: record.ts_socket.unix_nanos(),
+        best_bid: None,
+        best_bid_qty: None,
+        best_ask: None,
+        best_ask_qty: None,
+        capture_id: manifest.capture_id.as_str().to_owned(),
+        seq: record.seq,
+        flags: record.flags.bits(),
+        synthetic: record.flags.contains(CaptureFlags::SYNTHETIC),
+        gap_reason: None,
+        gap_attempts: None,
+        gap_started: None,
+        gap_ended: None,
+    };
+
+    if row.synthetic {
+        let marker: GapMarker = serde_json::from_slice(&record.payload)?;
+        row.gap_reason = Some(marker.reason);
+        row.gap_attempts = Some(marker.attempts);
+        row.gap_started = Some(marker.started_at.unix_nanos());
+        row.gap_ended = Some(marker.ended_at.unix_nanos());
+        return Ok(row);
+    }
+
+    if let Some(top) = feed::top_of_book(venue, record.channel, &record.payload) {
+        row.best_bid = top.best_bid.map(|price| price.raw());
+        row.best_bid_qty = top.best_bid_qty.map(|quantity| quantity.raw());
+        row.best_ask = top.best_ask.map(|price| price.raw());
+        row.best_ask_qty = top.best_ask_qty.map(|quantity| quantity.raw());
+        if top.ts_exchange.is_some() {
+            row.ts_exchange = top.ts_exchange.map(|timestamp| timestamp.unix_nanos());
+        }
+    }
+
+    Ok(row)
+}
+
+fn validate_top_books(rows: &[TopBookRow]) -> Result<(), NormalizeError> {
+    let mut seen_seq = HashSet::with_capacity(rows.len());
+
+    for row in rows {
+        if !seen_seq.insert(row.seq) {
+            return Err(NormalizeError::Validation(format!(
+                "duplicate seq {} in capture {}",
+                row.seq, row.capture_id
+            )));
+        }
+
+        for (label, value) in [("best_bid", row.best_bid), ("best_ask", row.best_ask)] {
+            if matches!(value, Some(price) if price <= 0) {
+                return Err(NormalizeError::Validation(format!(
+                    "invalid {label} at seq {}",
+                    row.seq
+                )));
+            }
+        }
+        for (label, value) in [
+            ("best_bid_qty", row.best_bid_qty),
+            ("best_ask_qty", row.best_ask_qty),
+        ] {
+            if matches!(value, Some(quantity) if quantity < 0) {
+                return Err(NormalizeError::Validation(format!(
+                    "invalid {label} at seq {}",
+                    row.seq
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn date_of(ts_socket: i64) -> String {
     DateTime::<Utc>::from_timestamp_nanos(ts_socket)
         .date_naive()
@@ -689,6 +818,116 @@ fn append_optional_decimal(builder: &mut Decimal128Builder, value: Option<i128>)
         Some(value) => builder.append_value(value),
         None => builder.append_null(),
     }
+}
+
+fn top_book_schema() -> Schema {
+    let decimal = DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE);
+
+    Schema::new(vec![
+        Field::new("venue", DataType::Utf8, false),
+        Field::new("market_type", DataType::Utf8, false),
+        Field::new("symbol", DataType::Utf8, false),
+        Field::new("ts_exchange", DataType::Int64, true),
+        Field::new("ts_socket", DataType::Int64, false),
+        Field::new("ts_ready", DataType::Int64, true),
+        Field::new("best_bid", decimal.clone(), true),
+        Field::new("best_bid_qty", decimal.clone(), true),
+        Field::new("best_ask", decimal.clone(), true),
+        Field::new("best_ask_qty", decimal, true),
+        Field::new("capture_id", DataType::Utf8, false),
+        Field::new("seq", DataType::UInt64, false),
+        Field::new("flags", DataType::UInt32, false),
+        Field::new("synthetic", DataType::Boolean, false),
+        Field::new("gap_reason", DataType::Utf8, true),
+        Field::new("gap_attempts", DataType::UInt32, true),
+        Field::new("gap_started", DataType::Int64, true),
+        Field::new("gap_ended", DataType::Int64, true),
+    ])
+}
+
+fn write_top_book_batch(path: &Path, rows: &[&TopBookRow]) -> Result<(), NormalizeError> {
+    let schema = top_book_schema();
+
+    let mut venue = StringBuilder::new();
+    let mut market_type = StringBuilder::new();
+    let mut symbol = StringBuilder::new();
+    let mut ts_exchange = Int64Builder::new();
+    let mut ts_socket = Int64Builder::new();
+    let mut ts_ready = Int64Builder::new();
+    let mut best_bid = Decimal128Builder::new()
+        .with_data_type(DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE));
+    let mut best_bid_qty = Decimal128Builder::new()
+        .with_data_type(DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE));
+    let mut best_ask = Decimal128Builder::new()
+        .with_data_type(DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE));
+    let mut best_ask_qty = Decimal128Builder::new()
+        .with_data_type(DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE));
+    let mut capture_id = StringBuilder::new();
+    let mut seq = UInt64Builder::new();
+    let mut flags = UInt32Builder::new();
+    let mut synthetic = BooleanBuilder::new();
+    let mut gap_reason = StringBuilder::new();
+    let mut gap_attempts = UInt32Builder::new();
+    let mut gap_started = Int64Builder::new();
+    let mut gap_ended = Int64Builder::new();
+
+    for row in rows {
+        venue.append_value(&row.venue);
+        market_type.append_value(&row.market_type);
+        symbol.append_value(&row.symbol);
+        append_optional(&mut ts_exchange, row.ts_exchange);
+        ts_socket.append_value(row.ts_socket);
+        ts_ready.append_null();
+        append_optional_decimal(&mut best_bid, row.best_bid);
+        append_optional_decimal(&mut best_bid_qty, row.best_bid_qty);
+        append_optional_decimal(&mut best_ask, row.best_ask);
+        append_optional_decimal(&mut best_ask_qty, row.best_ask_qty);
+        capture_id.append_value(&row.capture_id);
+        seq.append_value(row.seq);
+        flags.append_value(row.flags);
+        synthetic.append_value(row.synthetic);
+        match row.gap_reason.as_deref() {
+            Some(reason) => gap_reason.append_value(reason),
+            None => gap_reason.append_null(),
+        }
+        append_optional(&mut gap_attempts, row.gap_attempts);
+        append_optional(&mut gap_started, row.gap_started);
+        append_optional(&mut gap_ended, row.gap_ended);
+    }
+
+    let batch = RecordBatch::try_new(
+        schema.into(),
+        vec![
+            Arc::new(venue.finish()),
+            Arc::new(market_type.finish()),
+            Arc::new(symbol.finish()),
+            Arc::new(ts_exchange.finish()),
+            Arc::new(ts_socket.finish()),
+            Arc::new(ts_ready.finish()),
+            Arc::new(best_bid.finish()),
+            Arc::new(best_bid_qty.finish()),
+            Arc::new(best_ask.finish()),
+            Arc::new(best_ask_qty.finish()),
+            Arc::new(capture_id.finish()),
+            Arc::new(seq.finish()),
+            Arc::new(flags.finish()),
+            Arc::new(synthetic.finish()),
+            Arc::new(gap_reason.finish()),
+            Arc::new(gap_attempts.finish()),
+            Arc::new(gap_started.finish()),
+            Arc::new(gap_ended.finish()),
+        ],
+    )?;
+
+    let properties = WriterProperties::builder()
+        .set_key_value_metadata(Some(vec![parquet_metadata()]))
+        .build();
+    let file = std::fs::File::create(path)?;
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(properties))?;
+    writer.write(&batch)?;
+    writer.close()?;
+
+    Ok(())
 }
 
 fn level_list_builder(decimal: &DataType) -> ListBuilder<StructBuilder> {
@@ -1102,7 +1341,7 @@ mod tests {
             &input,
             vec![record(
                 0,
-                Channel::BookTicker,
+                Channel::Funding,
                 1_700_000_000_000_000_000,
                 TRADE_FRAME.as_bytes().to_vec(),
             )],
@@ -1487,6 +1726,137 @@ mod tests {
                     DEPTH_FRAME.as_bytes().to_vec(),
                 ),
                 record(1, Channel::Trade, 1_700_000_000_100_000_000, bad.to_vec()),
+            ],
+        );
+
+        assert!(matches!(
+            normalize(&input, &output),
+            Err(NormalizeError::Validation(_))
+        ));
+
+        std::fs::remove_dir_all(&input).unwrap();
+        let _ = std::fs::remove_dir_all(&output);
+    }
+
+    const BINANCE_TICKER: &str = r#"{"u":101057329065,"s":"BTCUSDT","b":"86086.00000000","B":"8.17272000","a":"86086.01000000","A":"0.02862000"}"#;
+    const COINBASE_TICKER: &str = r#"{"type":"ticker","sequence":136981932897,"product_id":"BTC-USD","price":"83098.17","best_bid":"83098.17000000","best_bid_size":"0.05203270","best_ask":"83098.18000000","best_ask_size":"0.00119371","time":"2026-09-29T17:37:59.446731Z"}"#;
+
+    fn top_book_file(output: &Path) -> PathBuf {
+        parquet_files(output)
+            .into_iter()
+            .find(|path| {
+                path.components().any(|component| {
+                    component
+                        .as_os_str()
+                        .to_str()
+                        .is_some_and(|s| s == "channel=book_ticker")
+                })
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn binance_tickers_normalize_exactly() {
+        let input = temp_directory("top-bn");
+        let output = temp_directory("top-bn-out");
+        write_capture(
+            &input,
+            vec![
+                record(
+                    0,
+                    Channel::BookTicker,
+                    1_700_000_000_000_000_000,
+                    BINANCE_TICKER.as_bytes().to_vec(),
+                ),
+                record(
+                    1,
+                    Channel::BookTicker,
+                    1_700_000_000_100_000_000,
+                    BINANCE_TICKER.as_bytes().to_vec(),
+                ),
+            ],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        assert_eq!(summary.rows_written, 2);
+
+        let (batches, version) = read_table(&top_book_file(&output));
+        assert_eq!(version.as_deref(), Some("1"));
+        assert_eq!(
+            decimal_column(&batches, "best_bid"),
+            vec![Some(86086_00000000), Some(86086_00000000)]
+        );
+        assert_eq!(
+            decimal_column(&batches, "best_ask_qty"),
+            vec![Some(2862000), Some(2862000)]
+        );
+
+        std::fs::remove_dir_all(&input).unwrap();
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn coinbase_tickers_normalize_with_exchange_time() {
+        let input = temp_directory("top-cb");
+        let output = temp_directory("top-cb-out");
+        write_capture(
+            &input,
+            vec![record_as(
+                0,
+                &coinbase_instrument(),
+                Channel::BookTicker,
+                1_700_000_000_000_000_000,
+                COINBASE_TICKER.as_bytes().to_vec(),
+            )],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        assert_eq!(summary.rows_written, 1);
+
+        let (batches, _) = read_table(&top_book_file(&output));
+        assert_eq!(
+            decimal_column(&batches, "best_bid"),
+            vec![Some(83098_17000000)]
+        );
+        assert_eq!(
+            string_column(&batches, "venue"),
+            vec![Some("coinbase".to_owned())]
+        );
+
+        use arrow::array::Array;
+        let batch = &batches[0];
+        let ts = batch
+            .column_by_name("ts_exchange")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow::array::Int64Array>()
+            .unwrap();
+        assert!(!ts.is_null(0));
+
+        std::fs::remove_dir_all(&input).unwrap();
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn a_bad_top_rejects_its_table_only() {
+        let input = temp_directory("bad-top");
+        let output = temp_directory("bad-top-out");
+        let bad = br#"{"u":1,"s":"BTCUSDT","b":"-5","B":"1","a":"1","A":"1"}"#;
+        write_capture(
+            &input,
+            vec![
+                record(
+                    0,
+                    Channel::BookDiff,
+                    1_700_000_000_000_000_000,
+                    DEPTH_FRAME.as_bytes().to_vec(),
+                ),
+                record(
+                    1,
+                    Channel::BookTicker,
+                    1_700_000_000_100_000_000,
+                    bad.to_vec(),
+                ),
             ],
         );
 
