@@ -1,5 +1,5 @@
 use astra_book::{BookDiff, BookSnapshot, Level, UpdateSpan};
-use astra_types::{Channel, Fixed, Instrument, MarketType, Venue};
+use astra_types::{Channel, Fixed, Instrument, MarketType, Timestamp, Venue};
 use thiserror::Error;
 
 const BINANCE_SPOT_WS: &str = "wss://stream.binance.com:9443/ws";
@@ -187,6 +187,127 @@ fn bybit_orderbook_diff(payload: &[u8]) -> Option<BookDiff> {
         bids: to_levels(event.data.bids),
         asks: to_levels(event.data.asks),
     })
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TradePrint {
+    pub trade_id: Option<String>,
+    pub price: Fixed,
+    pub quantity: Fixed,
+    pub side: Option<String>,
+    pub ts_exchange: Option<Timestamp>,
+}
+
+pub fn trade_prints(venue: Venue, channel: Channel, payload: &[u8]) -> Option<Vec<TradePrint>> {
+    match (venue, channel) {
+        (Venue::Binance, Channel::Trade) => binance_trade(payload).map(|print| vec![print]),
+        (Venue::Bybit, Channel::Trade) => bybit_trades(payload),
+        (Venue::Coinbase, Channel::Trade) => coinbase_trade(payload).map(|print| vec![print]),
+        _ => None,
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct BinanceTrade {
+    #[serde(rename = "t")]
+    trade_id: u64,
+    #[serde(rename = "p")]
+    price: Fixed,
+    #[serde(rename = "q")]
+    quantity: Fixed,
+    #[serde(rename = "m")]
+    buyer_is_maker: bool,
+    #[serde(rename = "T")]
+    trade_time_millis: i64,
+}
+
+fn binance_trade(payload: &[u8]) -> Option<TradePrint> {
+    let event: BinanceTrade = serde_json::from_slice(payload).ok()?;
+    Some(TradePrint {
+        trade_id: Some(event.trade_id.to_string()),
+        price: event.price,
+        quantity: event.quantity,
+        side: Some(if event.buyer_is_maker { "Sell" } else { "Buy" }.to_owned()),
+        ts_exchange: Some(Timestamp::from_unix_nanos(
+            event.trade_time_millis.saturating_mul(1_000_000),
+        )),
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct BybitTrade {
+    #[serde(rename = "T")]
+    trade_time_millis: i64,
+    #[serde(rename = "S")]
+    side: String,
+    #[serde(rename = "v")]
+    quantity: Fixed,
+    #[serde(rename = "p")]
+    price: Fixed,
+    #[serde(rename = "i")]
+    trade_id: String,
+}
+
+#[derive(serde::Deserialize)]
+struct BybitTradeStream {
+    data: Vec<BybitTrade>,
+}
+
+fn bybit_trades(payload: &[u8]) -> Option<Vec<TradePrint>> {
+    let event: BybitTradeStream = serde_json::from_slice(payload).ok()?;
+    Some(
+        event
+            .data
+            .into_iter()
+            .map(|trade| TradePrint {
+                trade_id: Some(trade.trade_id),
+                price: trade.price,
+                quantity: trade.quantity,
+                side: Some(trade.side),
+                ts_exchange: Some(Timestamp::from_unix_nanos(
+                    trade.trade_time_millis.saturating_mul(1_000_000),
+                )),
+            })
+            .collect(),
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct CoinbaseMatch {
+    trade_id: u64,
+    price: Fixed,
+    size: Fixed,
+    side: String,
+    time: String,
+}
+
+fn coinbase_trade(payload: &[u8]) -> Option<TradePrint> {
+    let event: CoinbaseMatch = serde_json::from_slice(payload).ok()?;
+    Some(TradePrint {
+        trade_id: Some(event.trade_id.to_string()),
+        price: event.price,
+        quantity: event.size,
+        side: Some(capitalize(&event.side)),
+        ts_exchange: parse_rfc3339_nanos(&event.time),
+    })
+}
+
+fn capitalize(side: &str) -> String {
+    let mut chars = side.chars();
+    match chars.next() {
+        Some(first) => {
+            let mut result: String = first.to_uppercase().collect();
+            result.push_str(&chars.as_str().to_lowercase());
+            result
+        }
+        None => String::new(),
+    }
+}
+
+fn parse_rfc3339_nanos(time: &str) -> Option<Timestamp> {
+    use chrono::DateTime;
+    let parsed: DateTime<chrono::Utc> = time.parse().ok()?;
+    Some(Timestamp::from_unix_nanos(parsed.timestamp_nanos_opt()?))
 }
 
 fn to_levels(levels: Vec<(Fixed, Fixed)>) -> Vec<Level> {
@@ -675,6 +796,116 @@ mod tests {
         );
         assert_eq!(
             inband_snapshot(Venue::Binance, Channel::BookDiff, &snapshot_bytes),
+            None
+        );
+    }
+
+    #[test]
+    fn a_real_binance_trade_parses_exactly() {
+        let payload = include_str!("../testdata/binance_trade.json");
+        let prints = trade_prints(Venue::Binance, Channel::Trade, payload.as_bytes()).unwrap();
+
+        assert_eq!(prints.len(), 1);
+        assert_eq!(prints[0].trade_id.as_deref(), Some("6736601518"));
+        assert_eq!(prints[0].price.to_string(), "85976.95000000");
+        assert_eq!(prints[0].quantity.to_string(), "0.00148000");
+        assert_eq!(prints[0].side.as_deref(), Some("Buy"));
+        assert_eq!(
+            prints[0].ts_exchange.map(|ts| ts.unix_nanos()),
+            Some(1_791_193_512_031_000_000)
+        );
+    }
+
+    #[test]
+    fn a_documented_bybit_trade_parses_exactly() {
+        let payload = include_str!("../testdata/bybit_trade_doc_example.json");
+        let prints = trade_prints(Venue::Bybit, Channel::Trade, payload.as_bytes()).unwrap();
+
+        assert_eq!(prints.len(), 1);
+        assert_eq!(
+            prints[0].trade_id.as_deref(),
+            Some("20f43950-d8dd-5b31-9112-a178eb6023af")
+        );
+        assert_eq!(prints[0].price.to_string(), "16578.50000000");
+        assert_eq!(prints[0].side.as_deref(), Some("Buy"));
+    }
+
+    #[test]
+    fn a_bundled_bybit_message_expands_to_one_row_per_trade() {
+        let payload = br#"{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304486868,"data":[{"T":1672304486865,"s":"BTCUSDT","S":"Buy","v":"0.001","p":"16578.50","i":"aaa","seq":1},{"T":1672304486866,"s":"BTCUSDT","S":"Sell","v":"0.002","p":"16578.51","i":"bbb","seq":2}]}"#;
+        let prints = trade_prints(Venue::Bybit, Channel::Trade, payload).unwrap();
+
+        assert_eq!(prints.len(), 2);
+        assert_eq!(prints[0].trade_id.as_deref(), Some("aaa"));
+        assert_eq!(prints[1].trade_id.as_deref(), Some("bbb"));
+        assert_eq!(prints[1].side.as_deref(), Some("Sell"));
+    }
+
+    #[test]
+    fn a_real_coinbase_match_parses_with_normalized_side() {
+        let payload = include_str!("../testdata/coinbase_match_ticker.json");
+        let frames: Vec<serde_json::Value> = serde_json::from_str(payload).unwrap();
+        let trade = frames
+            .iter()
+            .find(|frame| frame.get("type") == Some(&serde_json::json!("match")))
+            .unwrap();
+        let bytes = serde_json::to_vec(trade).unwrap();
+        let prints = trade_prints(Venue::Coinbase, Channel::Trade, &bytes).unwrap();
+
+        assert_eq!(prints.len(), 1);
+        assert_eq!(prints[0].trade_id.as_deref(), Some("1100092822"));
+        assert_eq!(prints[0].price.to_string(), "83098.17000000");
+        assert_eq!(prints[0].side.as_deref(), Some("Buy"));
+        assert!(prints[0].ts_exchange.is_some());
+    }
+
+    #[test]
+    fn hostile_trade_payloads_never_panic_and_never_parse() {
+        let hostile: &[&[u8]] = &[
+            b"",
+            b"not json",
+            b"{}",
+            b"{\"e\":\"trade\"}",
+            b"{\"t\":\"abc\",\"p\":\"1\",\"q\":\"1\",\"m\":true,\"T\":1}",
+            b"{\"t\":1,\"p\":\"abc\",\"q\":\"1\",\"m\":true,\"T\":1}",
+            b"{\"data\":\"not a list\"}",
+            b"{\"data\":[{\"T\":1}]}",
+        ];
+
+        for payload in hostile {
+            assert_eq!(
+                trade_prints(Venue::Binance, Channel::Trade, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+            assert_eq!(
+                trade_prints(Venue::Bybit, Channel::Trade, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+            assert_eq!(
+                trade_prints(Venue::Coinbase, Channel::Trade, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unparseable_coinbase_time_nulls_the_timestamp_only() {
+        let payload = br#"{"trade_id":7,"price":"1.00000000","size":"0.5","side":"sell","time":"not a time"}"#;
+        let prints = trade_prints(Venue::Coinbase, Channel::Trade, payload).unwrap();
+
+        assert_eq!(prints.len(), 1);
+        assert_eq!(prints[0].side.as_deref(), Some("Sell"));
+        assert_eq!(prints[0].ts_exchange, None);
+    }
+
+    #[test]
+    fn trade_parsing_refuses_other_channels() {
+        let payload = include_str!("../testdata/binance_trade.json");
+        assert_eq!(
+            trade_prints(Venue::Binance, Channel::BookDiff, payload.as_bytes()),
             None
         );
     }

@@ -356,6 +356,7 @@ version = "0.1.0"
 dependencies = [
  "astra-book",
  "astra-types",
+ "chrono",
  "clap",
  "ctrlc",
  "postcard",
