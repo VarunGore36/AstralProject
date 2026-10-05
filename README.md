@@ -96,7 +96,7 @@ A rigorous "this has no edge" is a successful result here.
 | Normalizer `book_diff` to Parquet (`astra-normalize`) | DONE |
 | Normalizer `top_of_book` to Parquet (Binance + Coinbase) | DONE — Binance live-verified; Coinbase parser-tested, live-blocked by network |
 | Normalizer `trade` to Parquet (all three venues) | DONE — Binance live-verified; Bybit/Coinbase parser-tested, live-blocked by network |
-| Exchange checksum validation | NOT IMPLEMENTED |
+| Exchange checksum validation | SUPERSEDED — no connected venue publishes book checksums (verified against Binance spot docs; Bybit and Coinbase publish none either; only Kraken does, and it is not connected). Correctness is proven by independent reference comparison instead |
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
 | Deterministic replay | PARTIALLY IMPLEMENTED — event core, `book-top` strategy, and CLI exist with seed-independent live hashes; ten-replay ritual performed; cross-machine proof open |
 | Cost and execution model | NOT IMPLEMENTED |
@@ -607,7 +607,7 @@ deep levels update rarely.
 | Full-depth match against a second connection's snapshot | none — two connections are served by different venue servers, so this comparison measures inter-server disagreement, not reconstruction error | NOT A VALID TEST |
 | Same-connection fan-out capture | one connection, 246 diffs + 247 snapshots routed to sibling dirs with own manifests; zero gaps, unknown streams counted | VERIFIED |
 | Decisive full-depth comparison | complete REST bootstrap + same-connection streams: 150 post-snapshot checks at depth 10, 149 exact matches, 1 dust-quantity transient (same prices, 5th-decimal quantities — a sub-millisecond race between the venue's publishers) | VERIFIED |
-| Exchange checksum validation | none | NOT IMPLEMENTED |
+| Exchange checksum validation | none — verdict, not a gap: Binance publishes no book checksums on any spot stream (verified against the official stream docs); Bybit and Coinbase publish none either. Only Kraken does among reachable majors, and it is not connected. The correctness claim this row was meant to carry is proven instead by reference comparison (rows above) | SUPERSEDED |
 
 ### What the test suite does not cover
 
