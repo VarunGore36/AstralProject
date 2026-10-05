@@ -62,22 +62,46 @@ pub fn normalize(input: &Path, output: &Path) -> Result<NormalizeSummary, Normal
         )));
     }
 
-    let mut rows = Vec::with_capacity(records.len());
+    let mut diff_rows = Vec::with_capacity(records.len());
+    let mut trade_rows = Vec::new();
     let mut skipped_unsupported_channel = 0u64;
 
     for record in &records {
         match record.channel {
-            Channel::BookDiff => rows.push(book_diff_row(&manifest, record)?),
+            Channel::BookDiff => diff_rows.push(book_diff_row(&manifest, record)?),
+            Channel::Trade => trade_rows.extend(trade_rows_for(&manifest, record)?),
             _ => skipped_unsupported_channel += 1,
         }
     }
 
-    validate_batch(&rows)?;
+    validate_batch(&diff_rows)?;
+    validate_trades(&trade_rows)?;
 
+    let mut files = Vec::new();
+    files.extend(write_grouped(output, &diff_rows, |path, rows| {
+        write_batch(path, rows)
+    })?);
+    files.extend(write_grouped(output, &trade_rows, |path, rows| {
+        write_trade_batch(path, rows)
+    })?);
+
+    Ok(NormalizeSummary {
+        records: records.len() as u64,
+        rows_written: (diff_rows.len() + trade_rows.len()) as u64,
+        skipped_unsupported_channel,
+        files,
+    })
+}
+
+fn write_grouped<T, W>(output: &Path, rows: &[T], write: W) -> Result<Vec<PathBuf>, NormalizeError>
+where
+    T: Partitioned,
+    W: Fn(&Path, &[&T]) -> Result<(), NormalizeError>,
+{
     let mut by_date: HashMap<String, Vec<usize>> = HashMap::new();
     for (index, row) in rows.iter().enumerate() {
         by_date
-            .entry(date_of(row.ts_socket))
+            .entry(date_of(row.ts_socket()))
             .or_default()
             .push(index);
     }
@@ -88,18 +112,64 @@ pub fn normalize(input: &Path, output: &Path) -> Result<NormalizeSummary, Normal
 
     for date in dates {
         let indices = &by_date[&date];
-        let batch_rows: Vec<&BookDiffRow> = indices.iter().map(|index| &rows[*index]).collect();
-        let path = part_path(output, batch_rows[0], &date)?;
-        write_batch(&path, &batch_rows)?;
+        let batch_rows: Vec<&T> = indices.iter().map(|index| &rows[*index]).collect();
+        let path = part_path(
+            output,
+            batch_rows[0].venue(),
+            batch_rows[0].market_type(),
+            batch_rows[0].symbol(),
+            batch_rows[0].channel(),
+            &date,
+        )?;
+        write(&path, &batch_rows)?;
         files.push(path);
     }
 
-    Ok(NormalizeSummary {
-        records: records.len() as u64,
-        rows_written: rows.len() as u64,
-        skipped_unsupported_channel,
-        files,
-    })
+    Ok(files)
+}
+
+trait Partitioned {
+    fn ts_socket(&self) -> i64;
+    fn venue(&self) -> &str;
+    fn market_type(&self) -> &str;
+    fn symbol(&self) -> &str;
+    fn channel(&self) -> &str;
+}
+
+impl Partitioned for BookDiffRow {
+    fn ts_socket(&self) -> i64 {
+        self.ts_socket
+    }
+    fn venue(&self) -> &str {
+        &self.venue
+    }
+    fn market_type(&self) -> &str {
+        &self.market_type
+    }
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+    fn channel(&self) -> &str {
+        &self.channel
+    }
+}
+
+impl Partitioned for TradeRow {
+    fn ts_socket(&self) -> i64 {
+        self.ts_socket
+    }
+    fn venue(&self) -> &str {
+        &self.venue
+    }
+    fn market_type(&self) -> &str {
+        &self.market_type
+    }
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+    fn channel(&self) -> &str {
+        &self.channel
+    }
 }
 
 struct BookDiffRow {
@@ -217,19 +287,141 @@ fn validate_batch(rows: &[BookDiffRow]) -> Result<(), NormalizeError> {
     Ok(())
 }
 
+#[derive(Clone, Debug)]
+struct TradeRow {
+    venue: String,
+    market_type: String,
+    symbol: String,
+    channel: String,
+    ts_exchange: Option<i64>,
+    ts_socket: i64,
+    trade_id: Option<String>,
+    price: Option<i128>,
+    quantity: Option<i128>,
+    side: Option<String>,
+    print_index: u32,
+    capture_id: String,
+    seq: u64,
+    flags: u32,
+    synthetic: bool,
+    gap_reason: Option<String>,
+    gap_attempts: Option<u32>,
+    gap_started: Option<i64>,
+    gap_ended: Option<i64>,
+}
+
+fn trade_rows_for(
+    manifest: &CaptureManifest,
+    record: &astra_types::CaptureRecord,
+) -> Result<Vec<TradeRow>, NormalizeError> {
+    let venue = record.instrument.venue();
+    let mut base = TradeRow {
+        venue: venue.to_string(),
+        market_type: record.instrument.market_type().to_string(),
+        symbol: record.instrument.symbol().to_string(),
+        channel: record.channel.to_string(),
+        ts_exchange: record.ts_exchange.map(|timestamp| timestamp.unix_nanos()),
+        ts_socket: record.ts_socket.unix_nanos(),
+        trade_id: None,
+        price: None,
+        quantity: None,
+        side: None,
+        print_index: 0,
+        capture_id: manifest.capture_id.as_str().to_owned(),
+        seq: record.seq,
+        flags: record.flags.bits(),
+        synthetic: record.flags.contains(CaptureFlags::SYNTHETIC),
+        gap_reason: None,
+        gap_attempts: None,
+        gap_started: None,
+        gap_ended: None,
+    };
+
+    if base.synthetic {
+        let marker: GapMarker = serde_json::from_slice(&record.payload)?;
+        base.gap_reason = Some(marker.reason);
+        base.gap_attempts = Some(marker.attempts);
+        base.gap_started = Some(marker.started_at.unix_nanos());
+        base.gap_ended = Some(marker.ended_at.unix_nanos());
+        return Ok(vec![base]);
+    }
+
+    let Some(prints) = feed::trade_prints(venue, record.channel, &record.payload) else {
+        return Ok(vec![base]);
+    };
+
+    Ok(prints
+        .into_iter()
+        .enumerate()
+        .map(|(index, print)| {
+            let mut row = TradeRow {
+                trade_id: print.trade_id,
+                price: Some(print.price.raw()),
+                quantity: Some(print.quantity.raw()),
+                side: print.side,
+                print_index: index as u32,
+                ..base.clone()
+            };
+            if print.ts_exchange.is_some() {
+                row.ts_exchange = print.ts_exchange.map(|timestamp| timestamp.unix_nanos());
+            }
+            row
+        })
+        .collect())
+}
+
+fn validate_trades(rows: &[TradeRow]) -> Result<(), NormalizeError> {
+    let mut seen_keys = HashSet::with_capacity(rows.len());
+
+    for row in rows {
+        if !seen_keys.insert((row.seq, row.print_index)) {
+            return Err(NormalizeError::Validation(format!(
+                "duplicate seq {} print {} in capture {}",
+                row.seq, row.print_index, row.capture_id
+            )));
+        }
+
+        if let Some(price) = row.price {
+            if price <= 0 {
+                return Err(NormalizeError::Validation(format!(
+                    "non-positive price {price} at seq {}",
+                    row.seq
+                )));
+            }
+        }
+        if let Some(quantity) = row.quantity {
+            if quantity < 0 {
+                return Err(NormalizeError::Validation(format!(
+                    "negative quantity {quantity} at seq {}",
+                    row.seq
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn date_of(ts_socket: i64) -> String {
     DateTime::<Utc>::from_timestamp_nanos(ts_socket)
         .date_naive()
         .to_string()
 }
 
-fn part_path(output: &Path, row: &BookDiffRow, date: &str) -> Result<PathBuf, NormalizeError> {
-    let symbol = row.symbol.replace('/', "_");
+fn part_path(
+    output: &Path,
+    venue: &str,
+    market_type: &str,
+    symbol: &str,
+    channel: &str,
+    date: &str,
+) -> Result<PathBuf, NormalizeError> {
+    let symbol = symbol.replace('/', "_");
     let directory = output
-        .join(format!("venue={}", row.venue))
-        .join(format!("market_type={}", row.market_type))
+        .join(format!("venue={venue}"))
+        .join(format!("market_type={market_type}"))
         .join(format!("symbol={symbol}"))
-        .join(format!("channel={}", row.channel))
+        .join(format!("channel={channel}"))
         .join(format!("date={date}"));
     std::fs::create_dir_all(&directory)?;
 
@@ -374,6 +566,131 @@ fn parquet_metadata() -> parquet::file::metadata::KeyValue {
     )
 }
 
+fn trade_schema() -> Schema {
+    let decimal = DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE);
+
+    Schema::new(vec![
+        Field::new("venue", DataType::Utf8, false),
+        Field::new("market_type", DataType::Utf8, false),
+        Field::new("symbol", DataType::Utf8, false),
+        Field::new("ts_exchange", DataType::Int64, true),
+        Field::new("ts_socket", DataType::Int64, false),
+        Field::new("ts_ready", DataType::Int64, true),
+        Field::new("trade_id", DataType::Utf8, true),
+        Field::new("price", decimal.clone(), true),
+        Field::new("quantity", decimal, true),
+        Field::new("side", DataType::Utf8, true),
+        Field::new("print_index", DataType::UInt32, false),
+        Field::new("capture_id", DataType::Utf8, false),
+        Field::new("seq", DataType::UInt64, false),
+        Field::new("flags", DataType::UInt32, false),
+        Field::new("synthetic", DataType::Boolean, false),
+        Field::new("gap_reason", DataType::Utf8, true),
+        Field::new("gap_attempts", DataType::UInt32, true),
+        Field::new("gap_started", DataType::Int64, true),
+        Field::new("gap_ended", DataType::Int64, true),
+    ])
+}
+
+fn write_trade_batch(path: &Path, rows: &[&TradeRow]) -> Result<(), NormalizeError> {
+    let schema = trade_schema();
+
+    let mut venue = StringBuilder::new();
+    let mut market_type = StringBuilder::new();
+    let mut symbol = StringBuilder::new();
+    let mut ts_exchange = Int64Builder::new();
+    let mut ts_socket = Int64Builder::new();
+    let mut ts_ready = Int64Builder::new();
+    let mut trade_id = StringBuilder::new();
+    let mut price = Decimal128Builder::new()
+        .with_data_type(DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE));
+    let mut quantity = Decimal128Builder::new()
+        .with_data_type(DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE));
+    let mut side = StringBuilder::new();
+    let mut print_index = UInt32Builder::new();
+    let mut capture_id = StringBuilder::new();
+    let mut seq = UInt64Builder::new();
+    let mut flags = UInt32Builder::new();
+    let mut synthetic = BooleanBuilder::new();
+    let mut gap_reason = StringBuilder::new();
+    let mut gap_attempts = UInt32Builder::new();
+    let mut gap_started = Int64Builder::new();
+    let mut gap_ended = Int64Builder::new();
+
+    for row in rows {
+        venue.append_value(&row.venue);
+        market_type.append_value(&row.market_type);
+        symbol.append_value(&row.symbol);
+        append_optional(&mut ts_exchange, row.ts_exchange);
+        ts_socket.append_value(row.ts_socket);
+        ts_ready.append_null();
+        match row.trade_id.as_deref() {
+            Some(id) => trade_id.append_value(id),
+            None => trade_id.append_null(),
+        }
+        append_optional_decimal(&mut price, row.price);
+        append_optional_decimal(&mut quantity, row.quantity);
+        match row.side.as_deref() {
+            Some(side_value) => side.append_value(side_value),
+            None => side.append_null(),
+        }
+        print_index.append_value(row.print_index);
+        capture_id.append_value(&row.capture_id);
+        seq.append_value(row.seq);
+        flags.append_value(row.flags);
+        synthetic.append_value(row.synthetic);
+        match row.gap_reason.as_deref() {
+            Some(reason) => gap_reason.append_value(reason),
+            None => gap_reason.append_null(),
+        }
+        append_optional(&mut gap_attempts, row.gap_attempts);
+        append_optional(&mut gap_started, row.gap_started);
+        append_optional(&mut gap_ended, row.gap_ended);
+    }
+
+    let batch = RecordBatch::try_new(
+        schema.into(),
+        vec![
+            Arc::new(venue.finish()),
+            Arc::new(market_type.finish()),
+            Arc::new(symbol.finish()),
+            Arc::new(ts_exchange.finish()),
+            Arc::new(ts_socket.finish()),
+            Arc::new(ts_ready.finish()),
+            Arc::new(trade_id.finish()),
+            Arc::new(price.finish()),
+            Arc::new(quantity.finish()),
+            Arc::new(side.finish()),
+            Arc::new(print_index.finish()),
+            Arc::new(capture_id.finish()),
+            Arc::new(seq.finish()),
+            Arc::new(flags.finish()),
+            Arc::new(synthetic.finish()),
+            Arc::new(gap_reason.finish()),
+            Arc::new(gap_attempts.finish()),
+            Arc::new(gap_started.finish()),
+            Arc::new(gap_ended.finish()),
+        ],
+    )?;
+
+    let properties = WriterProperties::builder()
+        .set_key_value_metadata(Some(vec![parquet_metadata()]))
+        .build();
+    let file = std::fs::File::create(path)?;
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(properties))?;
+    writer.write(&batch)?;
+    writer.close()?;
+
+    Ok(())
+}
+
+fn append_optional_decimal(builder: &mut Decimal128Builder, value: Option<i128>) {
+    match value {
+        Some(value) => builder.append_value(value),
+        None => builder.append_null(),
+    }
+}
+
 fn level_list_builder(decimal: &DataType) -> ListBuilder<StructBuilder> {
     let fields: Fields = vec![
         Field::new("price", decimal.clone(), false),
@@ -485,6 +802,22 @@ mod tests {
         )
     }
 
+    fn bybit_instrument() -> Instrument {
+        Instrument::new(
+            Venue::Bybit,
+            MarketType::Spot,
+            Symbol::new("BTC/USDT").unwrap(),
+        )
+    }
+
+    fn coinbase_instrument() -> Instrument {
+        Instrument::new(
+            Venue::Coinbase,
+            MarketType::Spot,
+            Symbol::new("BTC/USD").unwrap(),
+        )
+    }
+
     fn temp_directory(name: &str) -> PathBuf {
         let path =
             std::env::temp_dir().join(format!("astra-normalize-{name}-{}", std::process::id()));
@@ -493,9 +826,19 @@ mod tests {
     }
 
     fn record(seq: u64, channel: Channel, ts_socket: i64, payload: Vec<u8>) -> CaptureRecord {
+        record_as(seq, &instrument(), channel, ts_socket, payload)
+    }
+
+    fn record_as(
+        seq: u64,
+        instrument: &Instrument,
+        channel: Channel,
+        ts_socket: i64,
+        payload: Vec<u8>,
+    ) -> CaptureRecord {
         CaptureRecord {
             seq,
-            instrument: instrument(),
+            instrument: instrument.clone(),
             channel,
             ts_socket: Timestamp::from_unix_nanos(ts_socket),
             ts_exchange: None,
@@ -759,7 +1102,7 @@ mod tests {
             &input,
             vec![record(
                 0,
-                Channel::Trade,
+                Channel::BookTicker,
                 1_700_000_000_000_000_000,
                 TRADE_FRAME.as_bytes().to_vec(),
             )],
@@ -911,5 +1254,248 @@ mod tests {
 
         std::fs::remove_dir_all(&input).unwrap();
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    const BINANCE_TRADE: &str = r#"{"e":"trade","E":1700000000000,"s":"BTCUSDT","t":6736601518,"p":"85976.95000000","q":"0.00148000","T":1791193512031,"m":false,"M":true}"#;
+    const BYBIT_BUNDLE: &str = r#"{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304486868,"data":[{"T":1672304486865,"s":"BTCUSDT","S":"Buy","v":"0.001","p":"16578.50","i":"aaa","seq":1},{"T":1672304486866,"s":"BTCUSDT","S":"Sell","v":"0.002","p":"16578.51","i":"bbb","seq":2}]}"#;
+    const COINBASE_MATCH: &str = r#"{"type":"match","sequence":136981933065,"trade_id":1100092822,"product_id":"BTC-USD","price":"83098.17000000","size":"0.00030386","side":"buy","time":"2026-09-29T17:37:59.857502Z","maker_order_id":"x","taker_order_id":"y"}"#;
+
+    fn trade_file(output: &Path) -> PathBuf {
+        parquet_files(output)
+            .into_iter()
+            .find(|path| {
+                path.components().any(|component| {
+                    component
+                        .as_os_str()
+                        .to_str()
+                        .is_some_and(|s| s == "channel=trade")
+                })
+            })
+            .unwrap()
+    }
+
+    fn decimal_column(batches: &[RecordBatch], name: &str) -> Vec<Option<i128>> {
+        let mut values = Vec::new();
+        for batch in batches {
+            let column = batch
+                .column_by_name(name)
+                .unwrap()
+                .as_any()
+                .downcast_ref::<arrow::array::Decimal128Array>()
+                .unwrap();
+            for index in 0..column.len() {
+                if column.is_null(index) {
+                    values.push(None);
+                } else {
+                    values.push(Some(column.value(index)));
+                }
+            }
+        }
+        values
+    }
+
+    fn string_column(batches: &[RecordBatch], name: &str) -> Vec<Option<String>> {
+        let mut values = Vec::new();
+        for batch in batches {
+            let column = batch
+                .column_by_name(name)
+                .unwrap()
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .unwrap();
+            for index in 0..column.len() {
+                if column.is_null(index) {
+                    values.push(None);
+                } else {
+                    values.push(Some(column.value(index).to_owned()));
+                }
+            }
+        }
+        values
+    }
+
+    #[test]
+    fn binance_trades_normalize_exactly() {
+        let input = temp_directory("trades-bn");
+        let output = temp_directory("trades-bn-out");
+        write_capture(
+            &input,
+            vec![
+                record(
+                    0,
+                    Channel::Trade,
+                    1_700_000_000_000_000_000,
+                    BINANCE_TRADE.as_bytes().to_vec(),
+                ),
+                record(
+                    1,
+                    Channel::Trade,
+                    1_700_000_000_100_000_000,
+                    BINANCE_TRADE.as_bytes().to_vec(),
+                ),
+            ],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        assert_eq!(summary.rows_written, 2);
+        assert_eq!(summary.files.len(), 1);
+
+        let (batches, version) = read_table(&summary.files[0]);
+        assert_eq!(version.as_deref(), Some("1"));
+
+        let prices = decimal_column(&batches, "price");
+        assert_eq!(prices, vec![Some(85976_95000000), Some(85976_95000000)]);
+        assert_eq!(
+            string_column(&batches, "side"),
+            vec![Some("Buy".to_owned()), Some("Buy".to_owned())]
+        );
+        assert_eq!(
+            string_column(&batches, "trade_id"),
+            vec![Some("6736601518".to_owned()), Some("6736601518".to_owned())]
+        );
+
+        std::fs::remove_dir_all(&input).unwrap();
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn bybit_bundles_expand_to_indexed_rows() {
+        let input = temp_directory("trades-bybit");
+        let output = temp_directory("trades-bybit-out");
+        write_capture(
+            &input,
+            vec![record_as(
+                0,
+                &bybit_instrument(),
+                Channel::Trade,
+                1_700_000_000_000_000_000,
+                BYBIT_BUNDLE.as_bytes().to_vec(),
+            )],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        assert_eq!(summary.rows_written, 2);
+
+        let (batches, _) = read_table(&summary.files[0]);
+        assert_eq!(
+            string_column(&batches, "trade_id"),
+            vec![Some("aaa".to_owned()), Some("bbb".to_owned())]
+        );
+        assert_eq!(
+            string_column(&batches, "side"),
+            vec![Some("Buy".to_owned()), Some("Sell".to_owned())]
+        );
+
+        std::fs::remove_dir_all(&input).unwrap();
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn coinbase_matches_normalize_with_parsed_time() {
+        let input = temp_directory("trades-cb");
+        let output = temp_directory("trades-cb-out");
+        write_capture(
+            &input,
+            vec![record_as(
+                0,
+                &coinbase_instrument(),
+                Channel::Trade,
+                1_700_000_000_000_000_000,
+                COINBASE_MATCH.as_bytes().to_vec(),
+            )],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        assert_eq!(summary.rows_written, 1);
+
+        let (batches, _) = read_table(&summary.files[0]);
+        assert_eq!(
+            string_column(&batches, "side"),
+            vec![Some("Buy".to_owned())]
+        );
+
+        use arrow::array::Array;
+        let ts: Vec<Option<i64>> = batches
+            .iter()
+            .flat_map(|batch| {
+                let column = batch
+                    .column_by_name("ts_exchange")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<arrow::array::Int64Array>()
+                    .unwrap();
+                (0..column.len())
+                    .map(|index| (!column.is_null(index)).then(|| column.value(index)))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(ts.len(), 1);
+        assert!(ts[0].is_some());
+
+        std::fs::remove_dir_all(&input).unwrap();
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn mixed_channels_write_separate_tables() {
+        let input = temp_directory("mixed");
+        let output = temp_directory("mixed-out");
+        write_capture(
+            &input,
+            vec![
+                record(
+                    0,
+                    Channel::BookDiff,
+                    1_700_000_000_000_000_000,
+                    DEPTH_FRAME.as_bytes().to_vec(),
+                ),
+                record(
+                    1,
+                    Channel::Trade,
+                    1_700_000_000_100_000_000,
+                    BINANCE_TRADE.as_bytes().to_vec(),
+                ),
+            ],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        assert_eq!(summary.rows_written, 2);
+        assert_eq!(summary.files.len(), 2);
+        assert!(
+            trade_file(&output)
+                .to_str()
+                .unwrap()
+                .contains("channel=trade")
+        );
+
+        std::fs::remove_dir_all(&input).unwrap();
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn a_bad_trade_rejects_its_table_only() {
+        let input = temp_directory("bad-trade");
+        let output = temp_directory("bad-trade-out");
+        let bad = br#"{"e":"trade","E":1700000000000,"s":"BTCUSDT","t":9,"p":"-5","q":"0.01","T":1791193512031,"m":false,"M":true}"#;
+        write_capture(
+            &input,
+            vec![
+                record(
+                    0,
+                    Channel::BookDiff,
+                    1_700_000_000_000_000_000,
+                    DEPTH_FRAME.as_bytes().to_vec(),
+                ),
+                record(1, Channel::Trade, 1_700_000_000_100_000_000, bad.to_vec()),
+            ],
+        );
+
+        assert!(matches!(
+            normalize(&input, &output),
+            Err(NormalizeError::Validation(_))
+        ));
+
+        std::fs::remove_dir_all(&input).unwrap();
+        let _ = std::fs::remove_dir_all(&output);
     }
 }

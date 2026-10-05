@@ -57,19 +57,22 @@ One row per venue book-update event.
 
 ### `trade`
 
-One row per venue trade print. No venue currently feeds this table through a
-parser — payloads are captured, not yet normalized.
+One row per venue trade print. Aggregated messages (Bybit `publicTrade`
+bundles) expand to one row per trade, distinguished by `print_index` —
+decided because a bundle is a transport artifact, not a market event.
 
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `venue`, `market_type`, `symbol` | strings | as above |
-| `ts_exchange` | int64 ns, nullable | trade time when carried (`T`) |
+| `ts_exchange` | int64 ns, nullable | trade time when carried and parseable (`T` millis; Coinbase RFC3339, nulled when unparseable) |
 | `ts_socket` | int64 ns | local read time |
 | `ts_ready` | int64 ns | **not captured yet** |
-| `trade_id` | string, nullable | venue trade id when carried |
-| `price`, `quantity` | fixed decimal | |
-| `side` | string, nullable | taker side when carried |
+| `trade_id` | string, nullable | venue trade id as sent (numbers stringified, strings preserved) |
+| `price`, `quantity` | fixed decimal, nullable | null only on synthetic gap rows |
+| `side` | string, nullable | canonical `Buy`/`Sell`; derived from the maker flag on Binance, passed through on Bybit, case-normalized on Coinbase |
+| `print_index` | uint32 | 0-based position within the source message; always 0 except expanded bundles |
 | `capture_id`, `seq`, `flags`, `synthetic` | | as above |
+| `gap_reason`, `gap_attempts`, `gap_started`, `gap_ended` | nullable | as in `book_diff`; gap markers arrive per channel |
 
 ### `top_of_book`
 
@@ -124,20 +127,18 @@ partition per day; files are immutable once closed, mirroring chunk semantics.
 Every normalized batch must satisfy these before it is accepted:
 
 ```text
-timestamps within [capture start, capture end + tolerance]
-prices > 0 where present
-quantities >= 0 where present
-update ids continuous within the batch unless a synthetic gap row intervenes
-no duplicate (capture_id, seq) pairs
-schema version recorded in file metadata, equal to the writer's version
+timestamps within [capture start, capture end + tolerance]   [deferred: tolerance undecided]
+prices > 0 where present                                     [enforced]
+quantities >= 0 where present                                [enforced]
+update ids continuous within the batch unless a synthetic gap row intervenes   [not enforced: continuity is the capture layer's job, checked there]
+no duplicate (capture_id, seq, print_index) triples          [enforced]
+schema version recorded in file metadata, equal to the writer's version   [enforced]
 ```
 
 A batch that fails validation is rejected whole, never partially accepted.
 
 ## Open questions (undecided, deliberately)
 
-- Whether `trade` rows from aggregated streams (Bybit `publicTrade` bundles)
-  expand to one row per trade or one row per message.
 - The tolerance on timestamp validation (clock skew between venue and local).
 - Whether `ts_ready` belongs in the table or in sidecar metadata.
 - Compression codec and row-group sizing (measure on real data first).

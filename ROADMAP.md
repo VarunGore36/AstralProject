@@ -28,8 +28,9 @@ memory, adversarial parser tests against hostile payloads, and real captured
 venue frames committed as fixtures so CI replays reality instead of inventions.
 Coinbase probed: `level2` needs authentication (no book without API keys),
 `ticker` + `matches` are public but carry no checkable sequence, and both are
-now captured live. Normalization implemented for `book_diff` (exact decimals,
-whole-batch validation, Hive-partitioned output) and proven byte-deterministic
+now captured live. Normalization implemented for `book_diff` and `trade`
+(exact decimals, whole-batch validation, Hive-partitioned output, bundle
+expansion with print_index) and proven byte-deterministic
 in CI and live. Replay engine built through a CLI with a `book-top` demo
 strategy; live hashes seed-independent across ten repetitions. The ten-replay
 ritual stands performed; cross-machine proof awaits a second machine.

@@ -93,8 +93,9 @@ A rigorous "this has no edge" is a successful result here.
 | Replay event core (`astra-replay` lib: events, seeded context, hashing) | DONE |
 | Replay CLI with `book-top` demo strategy | DONE — live-verified, seed-independent hashes |
 | Normalizer `book_diff` to Parquet (`astra-normalize`) | DONE |
+| Normalizer `trade` to Parquet (all three venues) | DONE — Binance live-verified; Bybit/Coinbase parser-tested, live-blocked by network |
 | Exchange checksum validation | NOT IMPLEMENTED |
-| Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff` normalizes to Hive-partitioned Parquet; other channels counted and skipped |
+| Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff` and `trade` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
 | Deterministic replay | PARTIALLY IMPLEMENTED — event core, `book-top` strategy, and CLI exist with seed-independent live hashes; ten-replay ritual performed; cross-machine proof open |
 | Cost and execution model | NOT IMPLEMENTED |
 
@@ -122,7 +123,7 @@ flowchart LR
 | Exchange WebSocket | PARTIALLY IMPLEMENTED |
 | Raw immutable frames | PARTIALLY IMPLEMENTED |
 | Compressed chunks | DONE |
-| Normalised Parquet | PARTIALLY IMPLEMENTED — `book_diff` only (`astra-normalize`); other channels counted and skipped |
+| Normalised Parquet | PARTIALLY IMPLEMENTED — `book_diff` and `trade` (`astra-normalize`); remaining channels counted and skipped |
 | Deterministic replay | NOT IMPLEMENTED |
 | Research results | NOT IMPLEMENTED |
 
@@ -151,7 +152,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-types` | The schema: decimal and timestamp primitives, identifiers, capture records |
 | `crates/astra-book` | Order-book state: level updates, top of book, invariants |
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
-| `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` only) |
+| `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` + `trade`) |
 | `crates/astra-replay` | Deterministic replay: event core, `book-top` strategy, CLI |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables (design only, not implemented) |
 | `docs/replay-design.md` | The v1 design for the deterministic replay engine (design only, not implemented) |
@@ -562,6 +563,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Bybit in-band reconstruction | 425-frame live capture: 1 in-band snapshot bootstraps the book, 423 diffs applied, 0 gaps, 50/50 levels, one-tick spread, never crossed | VERIFIED |
 | Bybit `trade` capture | 72 frames in 8s against `publicTrade.BTCUSDT`; payloads carry documented `T/s/S/v/p/seq` trade fields | VERIFIED |
 | Normalizer `book_diff` to Parquet | live 102-frame capture normalizes to 102 rows in one Hive-partitioned file; decimals exact through the round trip; validation rejects bad batches whole; no third-party Parquet reader on this machine, so cross-validation is read-back via the same stack | VERIFIED with a stated boundary |
+| Normalizer `trade` to Parquet | live 347-frame Binance capture normalizes to 347 rows; Bybit bundle expansion and Coinbase side/time parsing covered by parser tests with real and documented fixtures; Bybit/Coinbase live normalization blocked by intercepted network, not by code | VERIFIED with a stated boundary |
 | Normalizer determinism | same 97-frame live capture normalized twice: identical file trees, identical SHA-256. CI asserts byte equality on every run | VERIFIED |
 | Live replay determinism | 96-frame live capture replayed under seeds 7 and 99 via `book-top`: 96 signals each, identical hashes. Seed-independence measured, not assumed | VERIFIED |
 | Ten-replay ritual | 151-frame live capture replayed 10 times under one seed: 10 identical signal hashes (`b098a501…`). The Gate 1 repetition bar, performed on real data | VERIFIED |
