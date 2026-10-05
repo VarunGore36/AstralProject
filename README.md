@@ -40,11 +40,13 @@ A rigorous "this has no edge" is a successful result here.
 
 ## Status
 
-- **Done** — core types, chunked capture store, live capture on Binance and
-  Bybit, reconnect with gap records, continuity rules on both venues, offline
-  and in-band reconstruction, capture audit, adversarial tests, capture-path
-  latency, and a live book that updates as frames arrive with its own latency
-  accounting.
+- **Done** — core types, chunked capture store, live capture on three venues
+  (Binance, Bybit, Coinbase), reconnect with gap records, continuity rules
+  where the venue offers checkable sequences, offline and in-band
+  reconstruction, capture audit, adversarial tests, capture-path and
+  book-update latency, Parquet normalization with proven byte-determinism,
+  and a replay engine whose live hashes are seed-independent across ten
+  repetitions.
 - **Working on** — the 72-hour soak: operator scripted (`ops/soak.sh`), four
   streams, awaiting a supervised 72h window. A brief trial run was started and
   stopped to leave a clean start; it proved the operator works, nothing more.
@@ -92,8 +94,8 @@ A rigorous "this has no edge" is a successful result here.
 | Replay CLI with `book-top` demo strategy | DONE — live-verified, seed-independent hashes |
 | Normalizer `book_diff` to Parquet (`astra-normalize`) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
-| Normalised Parquet datasets | NOT IMPLEMENTED |
-| Deterministic replay | NOT IMPLEMENTED |
+| Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff` normalizes to Hive-partitioned Parquet; other channels counted and skipped |
+| Deterministic replay | PARTIALLY IMPLEMENTED — event core, `book-top` strategy, and CLI exist with seed-independent live hashes; ten-replay ritual performed; cross-machine proof open |
 | Cost and execution model | NOT IMPLEMENTED |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
@@ -162,7 +164,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `Fixed` | `i128` scaled by 10^8 | decimal strings in, canonical eight places out; more than eight places is rejected rather than silently rounded; arithmetic rounds half away from zero |
 | `Timestamp` | `i64` nanoseconds since epoch | ordered, serialised as raw nanoseconds |
 | `Symbol` | validated `BASE/QUOTE` | uppercase ASCII alphanumeric with `.`, `_`, `-` |
-| `Venue` | `binance`, `bybit` | parsed case-insensitively, stored canonically |
+| `Venue` | `binance`, `bybit`, `coinbase` | parsed case-insensitively, stored canonically |
 | `MarketType` | `spot`, `perp_usdt` | |
 | `Channel` | `book_diff`, `book_snapshot`, `trade`, `book_ticker`, `funding`, `liquidation` — plus `open_interest`, deliberately unmapped (no native stream) | |
 
@@ -552,7 +554,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Capture-path latency | two live 30s runs (≈300 frames each): p50 108/130µs, p99 761/1076µs, max 1.4/2.2ms from socket-read to record-stored. Well under the 5ms target; this is the store half of the pipeline — the book half is measured in the next row | VERIFIED |
 | Book-update latency | Binance live: 272 updates, p50 15µs / p99 68µs. Bybit live: 730 updates, p50 6µs / p99 32µs, book snapshot-bootstrapped in-band. Both far under target; the Binance live book is partial (no REST bootstrap at startup), the Bybit one complete | VERIFIED with a stated boundary |
 | Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
-| Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
+| Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. Continuity rules came later; at capture time these runs reported `checked 0` | VERIFIED |
 | Bybit continuity checking | `u` measured strictly +1 across 357 live messages; live run checks 424/424 market frames with zero gaps (the 1 unchecked frame is the subscribe confirmation, not market data) | VERIFIED |
 | Coinbase `level2` auth wall | venue refuses unauthenticated subscription verbatim; no order book, no reconstruction path without API keys | VERIFIED negative result |
 | Coinbase `ticker` + `matches` sequencing | 121 sequenced messages: twins share sequence numbers, arrival order varies, tickers advance with no match — no strict rule holds, so none is claimed | VERIFIED analysis |
