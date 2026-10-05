@@ -44,6 +44,13 @@ pub struct CaptureOptions {
     pub max_frames: Option<u64>,
     pub duration: Option<Duration>,
     pub max_reconnects: u32,
+    pub fanouts: Vec<Fanout>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Fanout {
+    pub dir: PathBuf,
+    pub channel: Channel,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +64,20 @@ pub struct CaptureOutcome {
     pub latency: LatencySummary,
     pub book_latency: LatencySummary,
     pub book_updates: u64,
+    pub fanouts: Vec<FanoutOutcome>,
+    pub unknown_frames: u64,
+    pub first_unknown_stream: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FanoutOutcome {
+    pub capture_id: String,
+    pub channel: Channel,
+    pub dir: PathBuf,
+    pub frames_written: u64,
+    pub checked_frames: u64,
+    pub connection_gaps: u64,
+    pub sequence_gaps: u64,
 }
 
 #[derive(Default)]
@@ -192,23 +213,122 @@ pub fn write_manifest(output: &Path, manifest: &CaptureManifest) -> Result<(), R
     Ok(())
 }
 
+struct Session {
+    dir: PathBuf,
+    channel: Channel,
+    manifest: CaptureManifest,
+    writer: ChunkWriter,
+    state: CaptureState,
+    tracker: SequenceTracker,
+}
+
+impl Session {
+    fn open(dir: &Path, instrument: &Instrument, channel: Channel) -> Result<Self, RecordError> {
+        let manifest = init_capture(dir, instrument, channel)?;
+        let writer = ChunkWriter::open(dir.join(FRAMES_DIR), RECORDS_PER_CHUNK)?;
+        Ok(Session {
+            dir: dir.to_owned(),
+            channel,
+            manifest,
+            writer,
+            state: CaptureState::default(),
+            tracker: SequenceTracker::default(),
+        })
+    }
+
+    fn finish(mut self, stop_reason: &str) -> Result<FanoutOutcome, RecordError> {
+        self.writer.finish()?;
+
+        self.manifest.frames_written = self.state.frames;
+        self.manifest.stop_reason = Some(stop_reason.to_owned());
+        write_manifest(&self.dir, &self.manifest)?;
+
+        Ok(FanoutOutcome {
+            capture_id: self.manifest.capture_id.as_str().to_owned(),
+            channel: self.channel,
+            dir: self.dir,
+            frames_written: self.state.frames,
+            checked_frames: self.tracker.checked,
+            connection_gaps: self.state.connection_gaps,
+            sequence_gaps: self.tracker.gaps,
+        })
+    }
+
+    fn append_gap(
+        &mut self,
+        instrument: &Instrument,
+        started_at: Timestamp,
+        ended_at: Timestamp,
+        attempts: u32,
+        reason: String,
+    ) -> Result<(), RecordError> {
+        let marker = GapMarker {
+            started_at,
+            ended_at,
+            attempts,
+            reason,
+        };
+
+        let record = CaptureRecord {
+            seq: self.state.seq,
+            instrument: instrument.clone(),
+            channel: self.channel,
+            ts_socket: ended_at,
+            ts_exchange: None,
+            payload: serde_json::to_vec(&marker)?,
+            flags: CaptureFlags::SYNTHETIC
+                .union(CaptureFlags::SEQUENCE_GAP)
+                .union(CaptureFlags::UNRELIABLE),
+        };
+
+        self.writer.append(&record)?;
+        self.state.seq += 1;
+
+        Ok(())
+    }
+}
+
+struct UnknownFrames {
+    count: u64,
+    first_stream: Option<String>,
+}
+
 pub fn run_capture(
     options: CaptureOptions,
     interrupted: Arc<AtomicBool>,
 ) -> Result<CaptureOutcome, RecordError> {
     install_crypto_provider();
 
-    let mut manifest = init_capture(&options.output, &options.instrument, options.channel)?;
-    let mut writer = ChunkWriter::open(options.output.join(FRAMES_DIR), RECORDS_PER_CHUNK)?;
+    let combined = !options.fanouts.is_empty();
+    if combined {
+        let channels: Vec<Channel> = std::iter::once(options.channel)
+            .chain(options.fanouts.iter().map(|fanout| fanout.channel))
+            .collect();
+        feed::combined_stream_url(&options.instrument, &channels)?;
+    }
+
+    let mut sessions = vec![Session::open(
+        &options.output,
+        &options.instrument,
+        options.channel,
+    )?];
+    for fanout in &options.fanouts {
+        sessions.push(Session::open(
+            &fanout.dir,
+            &options.instrument,
+            fanout.channel,
+        )?);
+    }
 
     let mut socket = open_connection(&options)?;
-    let mut state = CaptureState::default();
-    let mut tracker = SequenceTracker::default();
     let mut latency = LatencyTracker::default();
     let mut live_book = Reconstructor::new();
     let mut book_latency = LatencyTracker::default();
     let mut book_updates = 0u64;
-    let mut session_started = Timestamp::now();
+    let mut unknown = UnknownFrames {
+        count: 0,
+        first_stream: None,
+    };
     let mut reconnects_used = 0u32;
     let mut backoff = RECONNECT_INITIAL_BACKOFF;
     let started = Instant::now();
@@ -219,7 +339,7 @@ pub fn run_capture(
         }
         if options
             .max_frames
-            .is_some_and(|limit| state.frames >= limit)
+            .is_some_and(|limit| sessions[0].state.frames >= limit)
         {
             break STOP_MAX_FRAMES.to_owned();
         }
@@ -233,17 +353,18 @@ pub fn run_capture(
         let disconnect = match socket.read() {
             Ok(Message::Text(text)) => {
                 let frame_started = Instant::now();
-                append_frame(
-                    &mut writer,
+                handle_frame(
+                    &mut sessions,
                     &options,
-                    &mut state,
-                    &mut tracker,
+                    combined,
                     text.as_bytes(),
+                    &mut unknown,
                 )?;
                 latency.record(frame_started.elapsed());
-                update_live_book(
+                update_live_book_combined(
                     &mut live_book,
                     &options,
+                    combined,
                     text.as_bytes(),
                     &mut book_latency,
                     &mut book_updates,
@@ -252,11 +373,12 @@ pub fn run_capture(
             }
             Ok(Message::Binary(bytes)) => {
                 let frame_started = Instant::now();
-                append_frame(&mut writer, &options, &mut state, &mut tracker, &bytes)?;
+                handle_frame(&mut sessions, &options, combined, &bytes, &mut unknown)?;
                 latency.record(frame_started.elapsed());
-                update_live_book(
+                update_live_book_combined(
                     &mut live_book,
                     &options,
+                    combined,
                     &bytes,
                     &mut book_latency,
                     &mut book_updates,
@@ -278,7 +400,6 @@ pub fn run_capture(
         }
 
         reconnects_used += 1;
-        let gap_started = state.last_frame_at.unwrap_or(session_started);
         thread::sleep(backoff);
         backoff = (backoff * 2).min(RECONNECT_MAX_BACKOFF);
 
@@ -290,50 +411,120 @@ pub fn run_capture(
             Ok(socket) => socket,
             Err(error) => break format!("reconnect_failed: {error}"),
         };
-        session_started = Timestamp::now();
+        let reconnected_at = Timestamp::now();
 
-        append_gap(
-            &mut writer,
-            &options,
-            &mut state,
-            gap_started,
-            session_started,
-            reconnects_used,
-            disconnect.gap_reason(),
-        )?;
-        state.connection_gaps += 1;
-        tracker.reset();
+        for session in sessions.iter_mut() {
+            let gap_started = session.state.last_frame_at.unwrap_or(reconnected_at);
+            session.append_gap(
+                &options.instrument,
+                gap_started,
+                reconnected_at,
+                reconnects_used,
+                disconnect.gap_reason(),
+            )?;
+            session.state.connection_gaps += 1;
+            session.tracker.reset();
+        }
     };
 
-    writer.finish()?;
-
-    manifest.frames_written = state.frames;
-    manifest.stop_reason = Some(stop_reason.clone());
-    write_manifest(&options.output, &manifest)?;
+    let mut outcomes = Vec::with_capacity(sessions.len());
+    for session in sessions {
+        outcomes.push(session.finish(&stop_reason)?);
+    }
+    let primary = outcomes.remove(0);
 
     Ok(CaptureOutcome {
-        capture_id: manifest.capture_id.as_str().to_owned(),
-        frames_written: state.frames,
-        checked_frames: tracker.checked,
-        connection_gaps: state.connection_gaps,
-        sequence_gaps: tracker.gaps,
+        capture_id: primary.capture_id.clone(),
+        frames_written: primary.frames_written,
+        checked_frames: primary.checked_frames,
+        connection_gaps: primary.connection_gaps,
+        sequence_gaps: primary.sequence_gaps,
         stop_reason,
         latency: latency.summary().unwrap_or_default(),
         book_latency: book_latency.summary().unwrap_or_default(),
         book_updates,
+        fanouts: outcomes,
+        unknown_frames: unknown.count,
+        first_unknown_stream: unknown.first_stream,
     })
 }
 
-fn update_live_book(
+fn update_live_book_combined(
     book: &mut Reconstructor,
     options: &CaptureOptions,
+    combined: bool,
     payload: &[u8],
     latency: &mut LatencyTracker,
     updates: &mut u64,
 ) {
-    let venue = options.instrument.venue();
+    if !combined {
+        return update_live_book(
+            book,
+            &options.instrument,
+            options.channel,
+            payload,
+            latency,
+            updates,
+        );
+    }
 
-    if let Some(snapshot) = feed::inband_snapshot(venue, options.channel, payload) {
+    let Some((stream, data)) = feed::unwrap_combined(payload) else {
+        return;
+    };
+    let Some(channel) = feed::channel_for_stream(&stream) else {
+        return;
+    };
+    update_live_book(book, &options.instrument, channel, &data, latency, updates);
+}
+
+fn handle_frame(
+    sessions: &mut [Session],
+    options: &CaptureOptions,
+    combined: bool,
+    payload: &[u8],
+    unknown: &mut UnknownFrames,
+) -> Result<(), RecordError> {
+    if !combined {
+        let session = &mut sessions[0];
+        return append_frame(session, &options.instrument, payload);
+    }
+
+    let Some((stream, data)) = feed::unwrap_combined(payload) else {
+        unknown.count += 1;
+        return Ok(());
+    };
+    let Some(channel) = feed::channel_for_stream(&stream) else {
+        unknown.count += 1;
+        if unknown.first_stream.is_none() {
+            unknown.first_stream = Some(stream);
+        }
+        return Ok(());
+    };
+    let Some(session) = sessions
+        .iter_mut()
+        .find(|session| session.channel == channel)
+    else {
+        unknown.count += 1;
+        if unknown.first_stream.is_none() {
+            unknown.first_stream = Some(stream);
+        }
+        return Ok(());
+    };
+
+    append_frame(session, &options.instrument, &data)
+}
+
+fn update_live_book(
+    book: &mut Reconstructor,
+    instrument: &Instrument,
+    channel: Channel,
+    payload: &[u8],
+    latency: &mut LatencyTracker,
+    updates: &mut u64,
+) {
+    let venue = instrument.venue();
+
+    if let Some(snapshot) = feed::inband_snapshot(venue, channel, payload) {
         let started = Instant::now();
         if book.load_snapshot(&snapshot).is_ok() {
             *updates += 1;
@@ -343,8 +534,8 @@ fn update_live_book(
     }
 
     let (Some(span), Some(diff)) = (
-        feed::update_span(venue, options.channel, payload),
-        feed::book_diff(venue, options.channel, payload),
+        feed::update_span(venue, channel, payload),
+        feed::book_diff(venue, channel, payload),
     ) else {
         return;
     };
@@ -362,76 +553,44 @@ fn open_connection(
     let (mut socket, _response) = connect(&options.url)?;
     set_read_timeout(&mut socket, READ_POLL)?;
 
-    if let Some(subscribe) = feed::subscribe_message(&options.instrument, options.channel) {
-        socket.send(Message::text(subscribe))?;
+    let mut channels = vec![options.channel];
+    channels.extend(options.fanouts.iter().map(|fanout| fanout.channel));
+    for channel in channels {
+        if let Some(subscribe) = feed::subscribe_message(&options.instrument, channel) {
+            socket.send(Message::text(subscribe))?;
+        }
     }
 
     Ok(socket)
 }
 
 fn append_frame(
-    writer: &mut ChunkWriter,
-    options: &CaptureOptions,
-    state: &mut CaptureState,
-    tracker: &mut SequenceTracker,
+    session: &mut Session,
+    instrument: &Instrument,
     payload: &[u8],
 ) -> Result<(), RecordError> {
-    let span = feed::update_span(options.instrument.venue(), options.channel, payload);
+    let span = feed::update_span(instrument.venue(), session.channel, payload);
 
-    if let Some(reason) = tracker.check(span) {
+    if let Some(reason) = session.tracker.check(span) {
         let now = Timestamp::now();
-        let started_at = state.last_frame_at.unwrap_or(now);
-        append_gap(writer, options, state, started_at, now, 0, reason)?;
+        let started_at = session.state.last_frame_at.unwrap_or(now);
+        session.append_gap(instrument, started_at, now, 0, reason)?;
     }
 
     let record = CaptureRecord {
-        seq: state.seq,
-        instrument: options.instrument.clone(),
-        channel: options.channel,
+        seq: session.state.seq,
+        instrument: instrument.clone(),
+        channel: session.channel,
         ts_socket: Timestamp::now(),
         ts_exchange: None,
         payload: payload.to_vec(),
         flags: CaptureFlags::NONE,
     };
 
-    writer.append(&record)?;
-    state.seq += 1;
-    state.frames += 1;
-    state.last_frame_at = Some(record.ts_socket);
-
-    Ok(())
-}
-
-fn append_gap(
-    writer: &mut ChunkWriter,
-    options: &CaptureOptions,
-    state: &mut CaptureState,
-    started_at: Timestamp,
-    ended_at: Timestamp,
-    attempts: u32,
-    reason: String,
-) -> Result<(), RecordError> {
-    let marker = GapMarker {
-        started_at,
-        ended_at,
-        attempts,
-        reason,
-    };
-
-    let record = CaptureRecord {
-        seq: state.seq,
-        instrument: options.instrument.clone(),
-        channel: options.channel,
-        ts_socket: ended_at,
-        ts_exchange: None,
-        payload: serde_json::to_vec(&marker)?,
-        flags: CaptureFlags::SYNTHETIC
-            .union(CaptureFlags::SEQUENCE_GAP)
-            .union(CaptureFlags::UNRELIABLE),
-    };
-
-    writer.append(&record)?;
-    state.seq += 1;
+    session.writer.append(&record)?;
+    session.state.seq += 1;
+    session.state.frames += 1;
+    session.state.last_frame_at = Some(record.ts_socket);
 
     Ok(())
 }
@@ -541,6 +700,7 @@ mod tests {
             max_frames: None,
             duration: None,
             max_reconnects: 0,
+            fanouts: Vec::new(),
         }
     }
 
@@ -560,6 +720,71 @@ mod tests {
 
     fn depth_frame(first: u64, last: u64) -> String {
         format!(r#"{{"e":"depthUpdate","s":"BTCUSDT","U":{first},"u":{last},"b":[],"a":[]}}"#)
+    }
+
+    fn wrapped(stream: &str, inner: &str) -> String {
+        format!(r#"{{"stream":"{stream}","data":{inner}}}"#)
+    }
+
+    const SNAPSHOT_INNER: &str =
+        r#"{"lastUpdateId":95,"bids":[["100.00000000","1"]],"asks":[["101.00000000","1"]]}"#;
+
+    #[test]
+    fn combined_capture_routes_each_stream_to_its_own_dir() {
+        let diff = depth_frame(100, 110);
+        let url = serve_connections(vec![vec![
+            wrapped("btcusdt@depth@100ms", &diff),
+            wrapped("btcusdt@depth10@100ms", SNAPSHOT_INNER),
+            wrapped("btcusdt@kline_1m", &diff),
+        ]]);
+        let primary = temp_directory("combined-primary");
+        let fanout_dir = temp_directory("combined-fanout");
+
+        let mut opts = options(&primary, url);
+        opts.fanouts = vec![Fanout {
+            dir: fanout_dir.clone(),
+            channel: Channel::BookSnapshot,
+        }];
+        let outcome = run_capture(opts, Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(outcome.frames_written, 1);
+        assert_eq!(outcome.unknown_frames, 1);
+        assert_eq!(
+            outcome.first_unknown_stream.as_deref(),
+            Some("btcusdt@kline_1m")
+        );
+        assert_eq!(outcome.fanouts.len(), 1);
+        assert_eq!(outcome.fanouts[0].frames_written, 1);
+        assert_eq!(outcome.fanouts[0].channel, Channel::BookSnapshot);
+
+        let snap_records = store::read_all(&fanout_dir.join(FRAMES_DIR)).unwrap();
+        assert_eq!(snap_records.len(), 1);
+        assert_eq!(snap_records[0].payload, SNAPSHOT_INNER.as_bytes());
+
+        std::fs::remove_dir_all(&primary).unwrap();
+        std::fs::remove_dir_all(&fanout_dir).unwrap();
+    }
+
+    #[test]
+    fn combined_capture_counts_unparseable_frames() {
+        let url = serve_connections(vec![vec!["not json".to_owned()]]);
+        let primary = temp_directory("combined-garbage");
+        let fanout_dir = temp_directory("combined-garbage-fanout");
+
+        let mut opts = options(&primary, url);
+        opts.fanouts = vec![Fanout {
+            dir: fanout_dir.clone(),
+            channel: Channel::BookSnapshot,
+        }];
+        let outcome = run_capture(opts, Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(outcome.frames_written, 0);
+        assert_eq!(outcome.unknown_frames, 1);
+        assert_eq!(outcome.first_unknown_stream, None);
+        assert_eq!(outcome.fanouts[0].frames_written, 0);
+
+        std::fs::remove_dir_all(&primary).unwrap();
+        std::fs::remove_dir_all(&fanout_dir).unwrap();
     }
 
     #[test]

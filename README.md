@@ -87,6 +87,7 @@ A rigorous "this has no edge" is a successful result here.
 | Adversarial parser tests + real 8-frame venue fixture | DONE |
 | Capture-path latency (socket-read to stored, per frame) | DONE — p50 ~0.1ms, p99 ~1ms, max ~2ms over two live 30s runs |
 | Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured |
+| Combined-stream fan-out capture (`--with`) | DONE — one connection, per-channel sibling dirs with own manifests, independent tracking, unknown streams counted |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Normalized event schema v1 (specification only, see `docs/`) | DONE |
 | Replay engine design v1 (specification only, see `docs/`) | DONE |
@@ -410,6 +411,22 @@ A dropped connection is re-established up to `--max-reconnects` times (default
 5) with exponential backoff, and every reconnection writes a gap record. Pass
 `--max-reconnects 0` to stop at the first drop instead.
 
+Capture two channels over one connection, each landing in its own capture dir
+with its own manifest and tracking:
+
+```sh
+cargo run -p astra-record -- capture \
+  --output ./val --venue binance --market spot --symbol BTC/USDT \
+  --channel book_diff --with book_snapshot \
+  --duration-secs 3600
+```
+
+`./val` holds `book_diff`, `./val-book_snapshot` holds the fanout. Stop limits
+apply to the primary channel; fanouts follow. Frames that unwrap to no known
+stream are counted as `unknown` and reported, never silently absorbed. With
+`--url`, the URL is used as-is and must already be a combined stream URL;
+without it, the combined URL is derived and validated first.
+
 ```mermaid
 flowchart TD
     A[connect] --> B[read frame]
@@ -539,8 +556,15 @@ depth   checks   matched
 10       300      247   ████████████████░░░░   82%
 ```
 
-Top-of-book is exact. The level-10 shortfall is inter-server disagreement
-between two venue connections, not reconstruction error — see the row below.
+Top-of-book is exact. The level-10 shortfall has two distinct mechanisms,
+proven separately. With a complete (1000-level REST) bootstrap on two
+connections, deep mismatches are inter-server disagreement. With a partial
+(10-level depth10) bootstrap on one connection, they are rank drift: levels
+outside the bootstrap that no diff ever touches drift into the top 10
+invisibly — proven by a missing level appearing in zero diff messages and
+outside the bootstrap, yet present in references. The gradient is exactly
+what partial-bootstrap theory predicts: accuracy decays with depth, because
+deep levels update rarely.
 
 | Claim | Evidence | Status |
 | --- | --- | --- |
@@ -581,6 +605,8 @@ between two venue connections, not reconstruction error — see the row below.
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
 | Full-depth match against a second connection's snapshot | none — two connections are served by different venue servers, so this comparison measures inter-server disagreement, not reconstruction error | NOT A VALID TEST |
+| Same-connection fan-out capture | one connection, 246 diffs + 247 snapshots routed to sibling dirs with own manifests; zero gaps, unknown streams counted | VERIFIED |
+| Decisive full-depth comparison | complete REST bootstrap + same-connection streams: 150 post-snapshot checks at depth 10, 149 exact matches, 1 dust-quantity transient (same prices, 5th-decimal quantities — a sub-millisecond race between the venue's publishers) | VERIFIED |
 | Exchange checksum validation | none | NOT IMPLEMENTED |
 
 ### What the test suite does not cover

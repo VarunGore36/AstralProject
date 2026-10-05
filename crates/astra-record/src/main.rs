@@ -53,6 +53,8 @@ struct CaptureArgs {
     symbol: Symbol,
     #[arg(long)]
     channel: Channel,
+    #[arg(long, value_name = "CHANNEL")]
+    with: Vec<Channel>,
     #[arg(long, value_name = "SECONDS")]
     duration_secs: Option<u64>,
     #[arg(long, value_name = "FRAMES")]
@@ -127,10 +129,36 @@ fn init(args: InitArgs) -> Result<(), RecordError> {
 
 fn capture(args: CaptureArgs) -> Result<(), RecordError> {
     let instrument = Instrument::new(args.venue, args.market, args.symbol);
-    let url = match args.url {
+    let combined = !args.with.is_empty();
+    let url = match args.url.clone() {
         Some(url) => url,
+        None if combined => {
+            let mut channels = vec![args.channel];
+            channels.extend(args.with.iter().copied());
+            feed::combined_stream_url(&instrument, &channels)?
+        }
         None => feed::stream_url(&instrument, args.channel)?,
     };
+    if combined {
+        let mut channels = vec![args.channel];
+        channels.extend(args.with.iter().copied());
+        feed::combined_stream_url(&instrument, &channels)?;
+    }
+
+    let fanouts = args
+        .with
+        .iter()
+        .map(|channel| astra_record::capture::Fanout {
+            dir: args.output.with_file_name(format!(
+                "{}-{channel}",
+                args.output
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            )),
+            channel: *channel,
+        })
+        .collect::<Vec<_>>();
 
     let interrupted = Arc::new(AtomicBool::new(false));
     let handler = Arc::clone(&interrupted);
@@ -145,6 +173,7 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
         max_frames: args.max_frames,
         duration: args.duration_secs.map(Duration::from_secs),
         max_reconnects: args.max_reconnects,
+        fanouts,
     };
 
     let outcome = run_capture(options, interrupted)?;
@@ -158,6 +187,26 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
     println!("checked     {}", outcome.checked_frames);
     println!("conn_gaps   {}", outcome.connection_gaps);
     println!("seq_gaps    {}", outcome.sequence_gaps);
+    for fanout in &outcome.fanouts {
+        println!(
+            "fanout      {} {} frames={} checked={} gaps={}",
+            fanout.dir.display(),
+            fanout.channel,
+            fanout.frames_written,
+            fanout.checked_frames,
+            fanout.connection_gaps + fanout.sequence_gaps,
+        );
+    }
+    if outcome.unknown_frames > 0 {
+        println!(
+            "unknown     {} (first: {})",
+            outcome.unknown_frames,
+            outcome
+                .first_unknown_stream
+                .as_deref()
+                .unwrap_or("unparseable")
+        );
+    }
     println!(
         "latency_us  p50 {:.1} p99 {:.1} max {:.1} ({} frames, read to stored)",
         outcome.latency.p50_ns as f64 / 1_000.0,
