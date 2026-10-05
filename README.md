@@ -35,6 +35,8 @@ A rigorous "this has no edge" is a successful result here.
 - [Known limitations](#known-limitations)
 - [Verification record](#verification-record)
   - [Top-of-book match gradient](#top-of-book-match-gradient)
+  - [Latency benchmark](#latency-benchmark-live-measured-not-reference-hardware)
+  - [Cross-machine reproduction](#cross-machine-reproduction)
 - [Failures encountered](#failures-encountered)
 - [Working rules](#working-rules)
 - [What this is not](#what-this-is-not)
