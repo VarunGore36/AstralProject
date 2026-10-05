@@ -310,6 +310,66 @@ fn parse_rfc3339_nanos(time: &str) -> Option<Timestamp> {
     Some(Timestamp::from_unix_nanos(parsed.timestamp_nanos_opt()?))
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TopOfBook {
+    pub best_bid: Option<Fixed>,
+    pub best_bid_qty: Option<Fixed>,
+    pub best_ask: Option<Fixed>,
+    pub best_ask_qty: Option<Fixed>,
+    pub ts_exchange: Option<Timestamp>,
+}
+
+pub fn top_of_book(venue: Venue, channel: Channel, payload: &[u8]) -> Option<TopOfBook> {
+    match (venue, channel) {
+        (Venue::Binance, Channel::BookTicker) => binance_top_of_book(payload),
+        (Venue::Coinbase, Channel::BookTicker) => coinbase_top_of_book(payload),
+        _ => None,
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct BinanceBookTicker {
+    #[serde(rename = "b")]
+    best_bid: Fixed,
+    #[serde(rename = "B")]
+    best_bid_qty: Fixed,
+    #[serde(rename = "a")]
+    best_ask: Fixed,
+    #[serde(rename = "A")]
+    best_ask_qty: Fixed,
+}
+
+fn binance_top_of_book(payload: &[u8]) -> Option<TopOfBook> {
+    let event: BinanceBookTicker = serde_json::from_slice(payload).ok()?;
+    Some(TopOfBook {
+        best_bid: Some(event.best_bid),
+        best_bid_qty: Some(event.best_bid_qty),
+        best_ask: Some(event.best_ask),
+        best_ask_qty: Some(event.best_ask_qty),
+        ts_exchange: None,
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct CoinbaseTicker {
+    best_bid: Fixed,
+    best_bid_size: Fixed,
+    best_ask: Fixed,
+    best_ask_size: Fixed,
+    time: String,
+}
+
+fn coinbase_top_of_book(payload: &[u8]) -> Option<TopOfBook> {
+    let event: CoinbaseTicker = serde_json::from_slice(payload).ok()?;
+    Some(TopOfBook {
+        best_bid: Some(event.best_bid),
+        best_bid_qty: Some(event.best_bid_size),
+        best_ask: Some(event.best_ask),
+        best_ask_qty: Some(event.best_ask_size),
+        ts_exchange: parse_rfc3339_nanos(&event.time),
+    })
+}
+
 fn to_levels(levels: Vec<(Fixed, Fixed)>) -> Vec<Level> {
     levels
         .into_iter()
@@ -908,5 +968,87 @@ mod tests {
             trade_prints(Venue::Binance, Channel::BookDiff, payload.as_bytes()),
             None
         );
+    }
+
+    #[test]
+    fn a_real_binance_book_ticker_parses_exactly() {
+        let payload = include_str!("../testdata/binance_book_ticker.json");
+        let top = top_of_book(Venue::Binance, Channel::BookTicker, payload.as_bytes()).unwrap();
+
+        assert_eq!(
+            top.best_bid.map(|v| v.to_string()).as_deref(),
+            Some("86086.00000000")
+        );
+        assert_eq!(
+            top.best_bid_qty.map(|v| v.to_string()).as_deref(),
+            Some("8.17272000")
+        );
+        assert_eq!(
+            top.best_ask.map(|v| v.to_string()).as_deref(),
+            Some("86086.01000000")
+        );
+        assert_eq!(
+            top.best_ask_qty.map(|v| v.to_string()).as_deref(),
+            Some("0.02862000")
+        );
+        assert_eq!(top.ts_exchange, None);
+    }
+
+    #[test]
+    fn a_real_coinbase_ticker_parses_exactly() {
+        let payload = include_str!("../testdata/coinbase_match_ticker.json");
+        let frames: Vec<serde_json::Value> = serde_json::from_str(payload).unwrap();
+        let ticker = frames
+            .iter()
+            .find(|frame| frame.get("type") == Some(&serde_json::json!("ticker")))
+            .unwrap();
+        let bytes = serde_json::to_vec(ticker).unwrap();
+        let top = top_of_book(Venue::Coinbase, Channel::BookTicker, &bytes).unwrap();
+
+        assert_eq!(
+            top.best_bid.map(|v| v.to_string()).as_deref(),
+            Some("83098.17000000")
+        );
+        assert_eq!(
+            top.best_ask.map(|v| v.to_string()).as_deref(),
+            Some("83098.18000000")
+        );
+        assert!(top.ts_exchange.is_some());
+    }
+
+    #[test]
+    fn hostile_top_of_book_payloads_never_panic_and_never_parse() {
+        let hostile: &[&[u8]] = &[
+            b"",
+            b"not json",
+            b"{}",
+            b"{\"b\":\"abc\",\"B\":\"1\",\"a\":\"1\",\"A\":\"1\"}",
+            b"{\"b\":\"1\",\"B\":\"1\"}",
+            b"{\"best_bid\":\"1\",\"best_bid_size\":\"1\"}",
+            b"{\"best_bid\":\"1\",\"best_bid_size\":\"1\",\"best_ask\":\"1\",\"best_ask_size\":\"1\"}",
+        ];
+
+        for payload in hostile {
+            assert_eq!(
+                top_of_book(Venue::Binance, Channel::BookTicker, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+            assert_eq!(
+                top_of_book(Venue::Coinbase, Channel::BookTicker, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+            assert_eq!(
+                top_of_book(Venue::Bybit, Channel::BookTicker, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+            assert_eq!(
+                top_of_book(Venue::Binance, Channel::BookDiff, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+        }
     }
 }
