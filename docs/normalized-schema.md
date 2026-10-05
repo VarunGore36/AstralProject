@@ -1,8 +1,9 @@
-# Normalized event schema (v1 draft)
+# Normalized event schema (v1)
 
-Status: **design only, not implemented**. Nothing reads or writes this schema
-yet. It exists so the replay engine, the determinism claim, and the Parquet
-datasets all build against one decided format instead of three invented ones.
+Status: **implemented for `book_diff`, `trade`, and `top_of_book`**
+(`astra-normalize`). `funding` and `liquidation` remain reserved table names
+only. The spec below is the format the normalizer targets and the replay engine
+builds against — one decided format instead of three invented ones.
 
 ## Why this document comes before code
 

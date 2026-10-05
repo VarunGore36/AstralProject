@@ -41,6 +41,8 @@ fn run(cli: Cli) -> Result<(), astra_replay::ReplayError> {
     println!("seed        {}", cli.seed);
     println!("frames      {}", report.frames);
     println!("events      {}", report.events_emitted);
+    println!("trades      {}", report.trade_events);
+    println!("topbooks    {}", report.top_book_events);
     println!("gaps        {}", report.gaps);
     println!(
         "skipped     {}",

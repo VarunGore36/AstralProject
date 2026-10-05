@@ -32,7 +32,9 @@ now captured live. Normalization implemented for `book_diff`, `trade`, and `top_
 (exact decimals, whole-batch validation, Hive-partitioned output, bundle
 expansion with print_index) and proven byte-deterministic
 in CI and live. Replay engine built through a CLI with a `book-top` demo
-strategy; live hashes seed-independent across ten repetitions. The ten-replay
+strategy (`book_diff` + `trade` with bundle expansion + `top_of_book`,
+gap passthrough, per-type counters); live hashes seed-independent across ten
+repetitions. The ten-replay
 ritual stands performed; cross-machine proof awaits a second machine.
 
 Order-book semantics match the venue's documented procedure exactly: events with

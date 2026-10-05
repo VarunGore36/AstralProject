@@ -1,8 +1,9 @@
-# Replay engine design (v1 draft)
+# Replay engine design (v1)
 
-Status: **design only, not implemented**. No replay code exists. This document
-defines what the engine must do so the determinism claim becomes testable
-instead of aspirational.
+Status: **implemented** (`astra-replay`: event core, `book-top` strategy, CLI).
+This document is the contract the engine satisfies — written before the engine
+so the engine can be judged against it. The v1 scope below has since grown to
+cover `trade` and `top_of_book` alongside `book_diff`; the rules are unchanged.
 
 ## What replay is
 
@@ -34,13 +35,13 @@ normalized datasets. Reasons:
 Replays emit, in order:
 
 - `book_diff` events with their update spans and level sets
+- `trade` events, one per print (Bybit bundles expand via `print_index`)
+- `top_of_book` events (Binance `bookTicker`, Coinbase `ticker`)
 - synthetic gap markers, exactly as recorded
 - stream end
 
-`trade` and `top_of_book` events are not in v1 scope. They arrive when their
-normalization does. A replay over a capture containing other channels replays
-the `book_diff` subset and reports the rest as skipped — the same accounting
-as the normalizer.
+A replay over a capture containing other channels replays the subset above
+and reports the rest as skipped — the same accounting as the normalizer.
 
 ## Ordering rules
 
@@ -104,7 +105,9 @@ gaps measures a market that never existed.
 - As-fast-as-possible only for v1, or a paced mode for debugging?
 - Multi-instrument merge semantics (v2 ordering rule is sketched above but
   untested).
-- `trade` / `top_of_book` event shapes when their normalization lands.
+- `trade` / `top_of_book` event shapes are implemented (`TradeEvent` with
+  `print_index`, `TopBookEvent`); multi-instrument merge semantics (v2 ordering
+  rule sketched above) remain untested.
 - Where signals are recorded and hashed (experiment hashing is future work).
 - Whether the engine reuses `record`/`replay` CLI surface or gets its own
   binary (`astra-replay` vs `astra-record replay`).

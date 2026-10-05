@@ -92,16 +92,16 @@ A rigorous "this has no edge" is a successful result here.
 | Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured |
 | Combined-stream fan-out capture (`--with`) | DONE — one connection, per-channel sibling dirs with own manifests, independent tracking, unknown streams counted |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
-| Normalized event schema v1 (specification only, see `docs/`) | DONE |
-| Replay engine design v1 (specification only, see `docs/`) | DONE |
-| Replay event core (`astra-replay` lib: events, seeded context, hashing) | DONE |
-| Replay CLI with `book-top` demo strategy | DONE — live-verified, seed-independent hashes |
+| Normalized event schema v1 (see `docs/`) | DONE — `book_diff`, `trade`, `top_of_book` implemented in `astra-normalize`; `funding`/`liquidation` reserved |
+| Replay engine design v1 (see `docs/`) | DONE — implemented in `astra-replay`; scope now covers `book_diff` + `trade` + `top_of_book` |
+| Replay event core (`astra-replay` lib: events, seeded context, hashing) | DONE — `BookDiff`/`Snapshot`/`Trade`/`TopBook` events, gap passthrough, per-type counters |
+| Replay CLI with `book-top` demo strategy | DONE — live-verified, seed-independent hashes; `book-top` tracks the book only, trade/topbook frames counted not signaled |
 | Normalizer `book_diff` to Parquet (`astra-normalize`) | DONE |
 | Normalizer `top_of_book` to Parquet (Binance + Coinbase) | DONE — Binance live-verified; Coinbase parser-tested, live-blocked by network |
 | Normalizer `trade` to Parquet (all three venues) | DONE — Binance live-verified; Bybit/Coinbase parser-tested, live-blocked by network |
 | Exchange checksum validation | SUPERSEDED — no connected venue publishes book checksums (verified against Binance spot docs; Bybit and Coinbase publish none either; only Kraken does, and it is not connected). Correctness is proven by independent reference comparison instead |
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
-| Deterministic replay | PARTIALLY IMPLEMENTED — event core, `book-top` strategy, and CLI exist with seed-independent live hashes; ten-replay ritual performed; cross-machine proof open |
+| Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; cross-machine proof open |
 | Cost and execution model | NOT IMPLEMENTED |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
@@ -331,14 +331,17 @@ cargo run -p astra-replay -- --input ./capture --seed 7 --strategy book-top
 ```
 
 Re-emits the capture's events in order through a strategy. `book-top`
-maintains a live book and emits top-of-book per event; every signal feeds a
+maintains a live book and emits top-of-book per book event; every signal feeds a
 SHA-256 hash printed at the end. Same capture plus same seed always yields
 the same hash — replay twice with different seeds and differing hashes mean
-the strategy depends on randomness it should not.
+the strategy depends on randomness it should not. `book-top` ignores trade
+and top-of-book frames (counted as `trades`/`topbooks`, zero signals from them).
 
 ```text
 frames      96
 events      96
+trades      0
+topbooks    0
 gaps        0
 skipped     0
 signals     96
@@ -347,7 +350,8 @@ signal_hash f66ae25f...
 
 Gap markers arrive as gap events, unparseable frames and other channels are
 counted as skipped, and a torn manifest fails loudly instead of replaying
-a capture that is not whole.
+a capture that is not whole. `trade` bundles expand per print (`print_index`);
+`book_ticker` frames arrive via `on_top_of_book`.
 
 ## Capture layout
 
@@ -603,6 +607,7 @@ deep levels update rarely.
 | Normalizer `top_of_book` to Parquet | live 464-frame Binance capture normalizes to 464 rows; Coinbase parsing covered by parser tests with a real fixture, live-blocked by network | VERIFIED with a stated boundary |
 | Normalizer determinism | same 97-frame live capture normalized twice: identical file trees, identical SHA-256. CI asserts byte equality on every run | VERIFIED |
 | Live replay determinism | 96-frame live capture replayed under seeds 7 and 99 via `book-top`: 96 signals each, identical hashes. Seed-independence measured, not assumed | VERIFIED |
+| Replay `trade` + `top_of_book` events | Bybit 2-print bundle expands to 2 trade events with `print_index`; Binance `bookTicker` fixture replays to 1 topbook event; unparseable trade frames and out-of-scope channels counted not crashed. Parser-tested + CI (10 replay tests), live multi-channel soak still open | VERIFIED with a stated boundary |
 | Ten-replay ritual | 151-frame live capture replayed 10 times under one seed: 10 identical signal hashes (`b098a501…`). The Gate 1 repetition bar, performed on real data | VERIFIED |
 | Bybit `liquidation` connectivity | subscribe to `allLiquidation.BTCUSDT` accepted, connection held for the full duration, zero liquidation events in 8s. The channel is proven connected, not proven delivering — absence of liquidations is market state, not a test result | CONNECTED, NOT VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |

@@ -68,6 +68,8 @@ impl Context {
 pub trait Strategy {
     fn on_book_diff(&mut self, event: &BookDiffEvent, ctx: &mut Context);
     fn on_snapshot(&mut self, event: &SnapshotEvent, ctx: &mut Context);
+    fn on_trade(&mut self, _event: &TradeEvent, _ctx: &mut Context) {}
+    fn on_top_of_book(&mut self, _event: &TopBookEvent, _ctx: &mut Context) {}
     fn on_gap(&mut self, marker: &GapMarker, ctx: &mut Context);
     fn on_end(&mut self, _frames: u64, _ctx: &mut Context) {}
 }
@@ -88,10 +90,29 @@ pub struct SnapshotEvent {
     pub snapshot: BookSnapshot,
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TradeEvent {
+    pub seq: u64,
+    pub print_index: u32,
+    pub ts_socket: Timestamp,
+    pub ts_exchange: Option<Timestamp>,
+    pub trade: feed::TradePrint,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct TopBookEvent {
+    pub seq: u64,
+    pub ts_socket: Timestamp,
+    pub ts_exchange: Option<Timestamp>,
+    pub top: feed::TopOfBook,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ReplayReport {
     pub frames: u64,
     pub events_emitted: u64,
+    pub trade_events: u64,
+    pub top_book_events: u64,
     pub gaps: u64,
     pub skipped_channel: u64,
     pub skipped_unparseable: u64,
@@ -139,12 +160,65 @@ pub fn replay(
             continue;
         }
 
-        if record.channel != Channel::BookDiff {
+        if record.channel != Channel::BookDiff
+            && record.channel != Channel::Trade
+            && record.channel != Channel::BookTicker
+        {
             report.skipped_channel += 1;
             continue;
         }
 
         let venue = record.instrument.venue();
+
+        if record.channel == Channel::Trade {
+            match feed::trade_prints(venue, record.channel, &record.payload) {
+                Some(prints) if !prints.is_empty() => {
+                    for (index, print) in prints.into_iter().enumerate() {
+                        strategy.on_trade(
+                            &TradeEvent {
+                                seq: record.seq,
+                                print_index: index as u32,
+                                ts_socket: record.ts_socket,
+                                ts_exchange: print.ts_exchange,
+                                trade: print,
+                            },
+                            &mut ctx,
+                        );
+                        report.trade_events += 1;
+                        report.events_emitted += 1;
+                    }
+                    continue;
+                }
+                _ => {
+                    report.skipped_unparseable += 1;
+                    continue;
+                }
+            }
+        }
+
+        if record.channel == Channel::BookTicker {
+            match feed::top_of_book(venue, record.channel, &record.payload) {
+                Some(top) => {
+                    strategy.on_top_of_book(
+                        &TopBookEvent {
+                            seq: record.seq,
+                            ts_socket: record.ts_socket,
+                            ts_exchange: top.ts_exchange,
+                            top,
+                        },
+                        &mut ctx,
+                    );
+                    report.top_book_events += 1;
+                    report.events_emitted += 1;
+                    continue;
+                }
+                None => {
+                    report.skipped_unparseable += 1;
+                    continue;
+                }
+            }
+        }
+
         if let Some(snapshot) = feed::inband_snapshot(venue, record.channel, &record.payload) {
             strategy.on_snapshot(
                 &SnapshotEvent {
@@ -221,6 +295,8 @@ mod tests {
     struct Recorder {
         diffs: u64,
         snapshots: u64,
+        trades: u64,
+        topbooks: u64,
         gaps: u64,
         ends: u64,
         use_rng: bool,
@@ -231,6 +307,8 @@ mod tests {
             Recorder {
                 diffs: 0,
                 snapshots: 0,
+                trades: 0,
+                topbooks: 0,
                 gaps: 0,
                 ends: 0,
                 use_rng: false,
@@ -251,6 +329,19 @@ mod tests {
         fn on_snapshot(&mut self, event: &SnapshotEvent, ctx: &mut Context) {
             self.snapshots += 1;
             ctx.emit("snapshot", event.seq.to_le_bytes().to_vec());
+        }
+
+        fn on_trade(&mut self, event: &TradeEvent, ctx: &mut Context) {
+            self.trades += 1;
+            let mut payload = Vec::with_capacity(20);
+            payload.extend_from_slice(&event.seq.to_le_bytes());
+            payload.extend_from_slice(&event.print_index.to_le_bytes());
+            ctx.emit("trade", payload);
+        }
+
+        fn on_top_of_book(&mut self, event: &TopBookEvent, ctx: &mut Context) {
+            self.topbooks += 1;
+            ctx.emit("topbook", event.seq.to_le_bytes().to_vec());
         }
 
         fn on_gap(&mut self, marker: &GapMarker, ctx: &mut Context) {
@@ -451,11 +542,23 @@ mod tests {
         let input = temp_directory("skipped");
         std::fs::create_dir_all(input.join(FRAMES_DIR)).unwrap();
 
-        let trade = CaptureRecord {
+        // A channel outside the replay set (funding is never replayed).
+        let skipped = CaptureRecord {
             seq: 1,
             instrument: instrument(),
-            channel: Channel::Trade,
+            channel: Channel::Funding,
             ts_socket: Timestamp::from_unix_nanos(1_700_000_000_000_000_001),
+            ts_exchange: None,
+            payload: b"{}".to_vec(),
+            flags: CaptureFlags::NONE,
+        };
+
+        // A trade-channel frame that cannot be parsed.
+        let bad_trade = CaptureRecord {
+            seq: 2,
+            instrument: instrument(),
+            channel: Channel::Trade,
+            ts_socket: Timestamp::from_unix_nanos(1_700_000_000_000_000_002),
             ts_exchange: None,
             payload: b"{}".to_vec(),
             flags: CaptureFlags::NONE,
@@ -465,9 +568,10 @@ mod tests {
         writer
             .append(&record(0, &instrument(), DEPTH_FRAME.as_bytes().to_vec()))
             .unwrap();
-        writer.append(&trade).unwrap();
+        writer.append(&skipped).unwrap();
+        writer.append(&bad_trade).unwrap();
         writer
-            .append(&record(2, &instrument(), b"not json".to_vec()))
+            .append(&record(3, &instrument(), b"not json".to_vec()))
             .unwrap();
         writer.finish().unwrap();
 
@@ -477,7 +581,7 @@ mod tests {
             created_at: Timestamp::from_unix_nanos(0),
             instrument: instrument(),
             channel: Channel::BookDiff,
-            frames_written: 3,
+            frames_written: 4,
             stop_reason: None,
         };
         astra_record::capture::write_manifest(&input, &manifest).unwrap();
@@ -485,11 +589,103 @@ mod tests {
         let mut strategy = Recorder::plain();
         let report = replay(&input, 7, &mut strategy).unwrap();
 
-        assert_eq!(report.frames, 3);
+        assert_eq!(report.frames, 4);
         assert_eq!(report.events_emitted, 1);
         assert_eq!(report.skipped_channel, 1);
-        assert_eq!(report.skipped_unparseable, 1);
+        assert_eq!(report.skipped_unparseable, 2);
         assert_eq!(strategy.diffs, 1);
+
+        std::fs::remove_dir_all(&input).unwrap();
+    }
+
+    #[test]
+    fn trade_frames_replay_with_bundle_expansion() {
+        use astra_types::{MarketType, Symbol, Venue};
+
+        let input = temp_directory("trade-events");
+        let bybit = Instrument::new(
+            Venue::Bybit,
+            MarketType::Spot,
+            Symbol::new("BTC/USDT").unwrap(),
+        );
+        let bundle = br#"{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304486868,"data":[{"T":1672304486865,"s":"BTCUSDT","S":"Buy","v":"0.001","p":"16578.50","i":"aaa","seq":1},{"T":1672304486866,"s":"BTCUSDT","S":"Sell","v":"0.002","p":"16578.51","i":"bbb","seq":2}]}"#;
+
+        std::fs::create_dir_all(input.join(FRAMES_DIR)).unwrap();
+        let mut writer = store::ChunkWriter::open(input.join(FRAMES_DIR), 100).unwrap();
+        writer
+            .append(&CaptureRecord {
+                seq: 0,
+                instrument: bybit.clone(),
+                channel: Channel::Trade,
+                ts_socket: Timestamp::from_unix_nanos(1_700_000_000_000_000_000),
+                ts_exchange: None,
+                payload: bundle.to_vec(),
+                flags: CaptureFlags::NONE,
+            })
+            .unwrap();
+        writer.finish().unwrap();
+
+        let manifest = CaptureManifest {
+            schema_version: astra_types::SCHEMA_VERSION,
+            capture_id: CaptureId::new("replay-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: bybit,
+            channel: Channel::Trade,
+            frames_written: 1,
+            stop_reason: None,
+        };
+        astra_record::capture::write_manifest(&input, &manifest).unwrap();
+
+        let mut strategy = Recorder::plain();
+        let report = replay(&input, 7, &mut strategy).unwrap();
+
+        assert_eq!(report.frames, 1);
+        assert_eq!(report.trade_events, 2);
+        assert_eq!(report.events_emitted, 2);
+        assert_eq!(strategy.trades, 2);
+        assert_eq!(report.signals, 2);
+
+        std::fs::remove_dir_all(&input).unwrap();
+    }
+
+    #[test]
+    fn top_of_book_frames_replay() {
+        let input = temp_directory("topbook-events");
+        let payload = include_str!("../../astra-record/testdata/binance_book_ticker.json");
+
+        std::fs::create_dir_all(input.join(FRAMES_DIR)).unwrap();
+        let mut writer = store::ChunkWriter::open(input.join(FRAMES_DIR), 100).unwrap();
+        writer
+            .append(&CaptureRecord {
+                seq: 0,
+                instrument: instrument(),
+                channel: Channel::BookTicker,
+                ts_socket: Timestamp::from_unix_nanos(1_700_000_000_000_000_000),
+                ts_exchange: None,
+                payload: payload.as_bytes().to_vec(),
+                flags: CaptureFlags::NONE,
+            })
+            .unwrap();
+        writer.finish().unwrap();
+
+        let manifest = CaptureManifest {
+            schema_version: astra_types::SCHEMA_VERSION,
+            capture_id: CaptureId::new("replay-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: instrument(),
+            channel: Channel::BookTicker,
+            frames_written: 1,
+            stop_reason: None,
+        };
+        astra_record::capture::write_manifest(&input, &manifest).unwrap();
+
+        let mut strategy = Recorder::plain();
+        let report = replay(&input, 7, &mut strategy).unwrap();
+
+        assert_eq!(report.frames, 1);
+        assert_eq!(report.top_book_events, 1);
+        assert_eq!(report.events_emitted, 1);
+        assert_eq!(strategy.topbooks, 1);
 
         std::fs::remove_dir_all(&input).unwrap();
     }
