@@ -1,5 +1,7 @@
 # Astral Project
 
+![ci](https://github.com/VarunGore36/AstralProject/actions/workflows/ci.yml/badge.svg)
+
 **An open, reproducible measurement layer for crypto markets.**
 
 **Live site: [astral-project-ruddy.vercel.app](https://astral-project-ruddy.vercel.app/)**
@@ -59,6 +61,7 @@ A rigorous "this has no edge" is a successful result here.
 | Component | State |
 | --- | --- |
 | Workspace, build, tests, lint | DONE |
+| CI (fmt + clippy + tests on push and PR) | DONE |
 | `Fixed` fixed-point decimal | DONE |
 | `Timestamp` nanosecond clock value | DONE |
 | Venue, market type, symbol, channel identifiers | DONE |
