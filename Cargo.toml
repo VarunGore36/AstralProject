@@ -29,7 +29,7 @@ rand = "0.9"
 postcard = { version = "1", features = ["use-std"] }
 rustls = { version = "0.23", features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
 thiserror = "2"
 tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }

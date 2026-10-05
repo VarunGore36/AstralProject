@@ -18,6 +18,10 @@ pub enum FeedError {
     },
     #[error("symbol {symbol} has no stream name")]
     EmptySymbol { symbol: String },
+    #[error("combined streams need at least one channel")]
+    EmptyStreamSet,
+    #[error("duplicate stream in combined set: {stream}")]
+    DuplicateStream { stream: String },
 }
 
 pub fn stream_url(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
@@ -383,18 +387,85 @@ fn binance_stream_url(instrument: &Instrument, channel: Channel) -> Result<Strin
         MarketType::PerpUsdt => BINANCE_FUTURES_WS,
     };
 
+    Ok(format!(
+        "{root}/{}",
+        binance_stream_name(instrument, channel)?
+    ))
+}
+
+fn binance_stream_name(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
     let symbol = stream_symbol(instrument)?;
-    let stream = match (instrument.market_type(), channel) {
-        (_, Channel::BookDiff) => format!("{symbol}@depth@100ms"),
-        (_, Channel::BookSnapshot) => format!("{symbol}@depth10@100ms"),
-        (_, Channel::Trade) => format!("{symbol}@trade"),
-        (_, Channel::BookTicker) => format!("{symbol}@bookTicker"),
-        (MarketType::PerpUsdt, Channel::Funding) => format!("{symbol}@markPrice@1s"),
-        (MarketType::PerpUsdt, Channel::Liquidation) => format!("{symbol}@forceOrder"),
-        _ => return Err(not_implemented(instrument, channel)),
+    match (instrument.market_type(), channel) {
+        (_, Channel::BookDiff) => Ok(format!("{symbol}@depth@100ms")),
+        (_, Channel::BookSnapshot) => Ok(format!("{symbol}@depth10@100ms")),
+        (_, Channel::Trade) => Ok(format!("{symbol}@trade")),
+        (_, Channel::BookTicker) => Ok(format!("{symbol}@bookTicker")),
+        (MarketType::PerpUsdt, Channel::Funding) => Ok(format!("{symbol}@markPrice@1s")),
+        (MarketType::PerpUsdt, Channel::Liquidation) => Ok(format!("{symbol}@forceOrder")),
+        _ => Err(not_implemented(instrument, channel)),
+    }
+}
+
+pub fn combined_stream_url(
+    instrument: &Instrument,
+    channels: &[Channel],
+) -> Result<String, FeedError> {
+    if instrument.venue() != Venue::Binance {
+        return Err(not_implemented(
+            instrument,
+            channels.first().copied().unwrap_or(Channel::BookDiff),
+        ));
+    }
+    if channels.is_empty() {
+        return Err(FeedError::EmptyStreamSet);
+    }
+
+    let root = match instrument.market_type() {
+        MarketType::Spot => BINANCE_SPOT_WS,
+        MarketType::PerpUsdt => BINANCE_FUTURES_WS,
     };
 
-    Ok(format!("{root}/{stream}"))
+    let mut streams = Vec::with_capacity(channels.len());
+    for channel in channels {
+        let name = binance_stream_name(instrument, *channel)?;
+        if streams.contains(&name) {
+            return Err(FeedError::DuplicateStream { stream: name });
+        }
+        streams.push(name);
+    }
+
+    Ok(format!("{root}/stream?streams={}", streams.join("/")))
+}
+
+pub fn channel_for_stream(stream: &str) -> Option<Channel> {
+    let name = stream.rsplit('/').next().unwrap_or(stream);
+    if name.ends_with("@depth10@100ms") {
+        Some(Channel::BookSnapshot)
+    } else if name.ends_with("@depth@100ms") || name == "depth" || name.ends_with("@depth") {
+        Some(Channel::BookDiff)
+    } else if name.ends_with("@trade") {
+        Some(Channel::Trade)
+    } else if name.ends_with("@bookTicker") {
+        Some(Channel::BookTicker)
+    } else if name.ends_with("@markPrice@1s") {
+        Some(Channel::Funding)
+    } else if name.ends_with("@forceOrder") {
+        Some(Channel::Liquidation)
+    } else {
+        None
+    }
+}
+
+pub fn unwrap_combined(payload: &[u8]) -> Option<(String, Vec<u8>)> {
+    #[derive(serde::Deserialize)]
+    struct Combined<'a> {
+        stream: String,
+        #[serde(borrow)]
+        data: &'a serde_json::value::RawValue,
+    }
+
+    let frame: Combined = serde_json::from_slice(payload).ok()?;
+    Some((frame.stream, frame.data.get().as_bytes().to_vec()))
 }
 
 fn bybit_stream_url(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
@@ -659,6 +730,86 @@ mod tests {
             stream_url(&perp, Channel::OpenInterest),
             Err(FeedError::NotImplemented { .. })
         ));
+    }
+
+    #[test]
+    fn combined_url_joins_stream_names() {
+        let spot = instrument(Venue::Binance, MarketType::Spot);
+        assert_eq!(
+            combined_stream_url(&spot, &[Channel::BookDiff, Channel::BookSnapshot]).unwrap(),
+            "wss://stream.binance.com:9443/ws/stream?streams=btcusdt@depth@100ms/btcusdt@depth10@100ms"
+        );
+    }
+
+    #[test]
+    fn combined_url_refuses_bad_sets() {
+        let spot = instrument(Venue::Binance, MarketType::Spot);
+        assert!(matches!(
+            combined_stream_url(&spot, &[]),
+            Err(FeedError::EmptyStreamSet)
+        ));
+        assert!(matches!(
+            combined_stream_url(&spot, &[Channel::BookDiff, Channel::BookDiff]),
+            Err(FeedError::DuplicateStream { .. })
+        ));
+        assert!(matches!(
+            combined_stream_url(&spot, &[Channel::BookDiff, Channel::Funding]),
+            Err(FeedError::NotImplemented { .. })
+        ));
+        assert!(matches!(
+            combined_stream_url(
+                &instrument(Venue::Bybit, MarketType::Spot),
+                &[Channel::BookDiff]
+            ),
+            Err(FeedError::NotImplemented { .. })
+        ));
+    }
+
+    #[test]
+    fn stream_names_route_to_channels() {
+        assert_eq!(
+            channel_for_stream("btcusdt@depth@100ms"),
+            Some(Channel::BookDiff)
+        );
+        assert_eq!(
+            channel_for_stream("btcusdt@depth10@100ms"),
+            Some(Channel::BookSnapshot)
+        );
+        assert_eq!(channel_for_stream("btcusdt@trade"), Some(Channel::Trade));
+        assert_eq!(
+            channel_for_stream("btcusdt@bookTicker"),
+            Some(Channel::BookTicker)
+        );
+        assert_eq!(
+            channel_for_stream("btcusdt@markPrice@1s"),
+            Some(Channel::Funding)
+        );
+        assert_eq!(
+            channel_for_stream("btcusdt@forceOrder"),
+            Some(Channel::Liquidation)
+        );
+        assert_eq!(channel_for_stream("btcusdt@kline_1m"), None);
+        assert_eq!(channel_for_stream(""), None);
+    }
+
+    #[test]
+    fn combined_wrapper_splits_byte_exactly() {
+        let inner = include_str!("../testdata/binance_depth_update.json");
+        let inner = inner.trim_end();
+        let envelope = format!("{{\"stream\":\"btcusdt@depth@100ms\",\"data\":{inner}}}");
+
+        let (stream, data) = unwrap_combined(envelope.as_bytes()).unwrap();
+        assert_eq!(stream, "btcusdt@depth@100ms");
+        assert_eq!(data, inner.as_bytes());
+    }
+
+    #[test]
+    fn combined_wrapper_rejects_garbage() {
+        assert_eq!(unwrap_combined(b""), None);
+        assert_eq!(unwrap_combined(b"not json"), None);
+        assert_eq!(unwrap_combined(b"{\"stream\":\"x\"}"), None);
+        assert_eq!(unwrap_combined(b"{\"data\":{}}"), None);
+        assert_eq!(unwrap_combined(b"{\"stream\":1,\"data\":{}}"), None);
     }
 
     #[test]
