@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="website/logo.png" width="320" alt="Astral Project logo — a luminous triangular emblem over a constellation of cubes" />
+</p>
+
 # Astral Project
 
 ![ci](https://github.com/VarunGore36/AstralProject/actions/workflows/ci.yml/badge.svg)
