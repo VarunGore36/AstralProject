@@ -529,3 +529,140 @@ html:not(.js) .reveal { opacity: 1; transform: none; }
   .header-cta { display: none; }
   .pipeline { padding: 1rem 0.25rem 0; }
 }
+
+/* ---------- modern layer: motion + depth ---------- */
+
+section[id] { scroll-margin-top: 5rem; }
+
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #1c2534; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #2a3648; }
+
+/* staggered entrances (delay set per grid item in JS) */
+.reveal { transition-delay: var(--rd, 0ms); }
+
+/* headline sheen */
+.hero h1 {
+  background: linear-gradient(180deg, #fff 40%, #9fb0c3 72%, #5eead4 135%);
+  background-size: 100% 220%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: headline-drift 12s ease-in-out infinite alternate;
+}
+
+@keyframes headline-drift {
+  from { background-position: 50% 0%; }
+  to { background-position: 50% 60%; }
+}
+
+/* drifting ambient glows */
+.hero-glow-a { animation: drift-a 14s ease-in-out infinite alternate; }
+.hero-glow-b { animation: drift-b 18s ease-in-out infinite alternate; }
+
+@keyframes drift-a {
+  from { transform: translateX(-70%) translateY(0); }
+  to { transform: translateX(-60%) translateY(44px); }
+}
+
+@keyframes drift-b {
+  from { transform: translateX(30%) translateY(0); }
+  to { transform: translateX(20%) translateY(-34px); }
+}
+
+/* primary button shine sweep */
+.btn-primary { position: relative; overflow: hidden; }
+
+.btn-primary::after {
+  content: "";
+  position: absolute;
+  top: 0; left: -70%;
+  width: 45%; height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.6s ease;
+  pointer-events: none;
+}
+
+.btn-primary:hover::after { left: 135%; }
+
+/* nav underline + scrollspy */
+.site-nav a { position: relative; }
+
+.site-nav a::after {
+  content: "";
+  position: absolute;
+  left: 0; bottom: -5px;
+  height: 1px; width: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s ease;
+}
+
+.site-nav a:hover::after, .site-nav a.active::after { transform: scaleX(1); }
+.site-nav a.active { color: var(--text); }
+
+/* glass cards with cursor spotlight */
+.card {
+  position: relative;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(94, 234, 212, 0.09), transparent 65%);
+}
+
+.card:hover::before { opacity: 1; }
+
+/* terminal line-by-line entrance */
+.hero-terminal .tline { display: block; }
+.hero-terminal.armed .tline { opacity: 0; }
+.hero-terminal.live .tline { animation: tline-in 0.5s ease forwards; }
+
+@keyframes tline-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* stat numbers hold steady while counting */
+.hero-stats dd { font-variant-numeric: tabular-nums; }
+
+/* pipeline nodes breathe in sequence */
+.pnode { animation: node-breathe 3.4s ease-in-out infinite; }
+.pnode:nth-child(2) { animation-delay: 0.4s; }
+.pnode:nth-child(3) { animation-delay: 0.8s; }
+.pnode:nth-child(4) { animation-delay: 1.2s; }
+.pnode:nth-child(5) { animation-delay: 1.6s; }
+.pnode:nth-child(6) { animation-delay: 2s; }
+
+@keyframes node-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* active gate sheen */
+.gate-active { position: relative; overflow: hidden; }
+
+.gate-active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, rgba(94, 234, 212, 0.06) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: gate-sheen 5.5s ease-in-out infinite;
+}
+
+@keyframes gate-sheen {
+  0% { background-position: 120% 0; }
+  60%, 100% { background-position: -20% 0; }
+}
