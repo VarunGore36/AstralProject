@@ -95,7 +95,7 @@ A rigorous "this has no edge" is a successful result here.
 | Capture-path latency (socket-read to stored, per frame) | DONE — p50 ~0.1ms, p99 ~1ms, max ~2ms over two live 30s runs |
 | Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured |
 | Combined-stream fan-out capture (`--with`) | DONE — one connection, per-channel sibling dirs with own manifests, independent tracking, unknown streams counted |
-| Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
+| Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE — full content inlined (`website/docs/*.html` built from `docs/` via `website/build.py`, no external doc links); fluoro neon theme |
 | Normalized event schema v1 (see `docs/`) | DONE — `book_diff`, `trade`, `top_of_book` implemented in `astra-normalize`; `funding`/`liquidation` reserved |
 | Replay engine design v1 (see `docs/`) | DONE — implemented in `astra-replay`; scope now covers `book_diff` + `trade` + `top_of_book` |
 | Replay event core (`astra-replay` lib: events, seeded context, hashing) | DONE — `BookDiff`/`Snapshot`/`Trade`/`TopBook` events, gap passthrough, per-type counters |

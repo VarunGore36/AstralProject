@@ -666,3 +666,111 @@ section[id] { scroll-margin-top: 5rem; }
   0% { background-position: 120% 0; }
   60%, 100% { background-position: -20% 0; }
 }
+
+/* ---------- fluoro neon layer ---------- */
+
+:root {
+  --fl-green: #3dff73;
+  --fl-blue: #41c7ff;
+  --fl-red: #ff3b5c;
+}
+
+/* tri-color ambient orbs */
+.hero-glow-a {
+  background: radial-gradient(circle, rgba(61, 255, 115, 0.14), transparent 65%);
+}
+
+.hero-glow-b {
+  background: radial-gradient(circle, rgba(65, 199, 255, 0.15), transparent 65%);
+}
+
+.hero-glow-c {
+  width: 420px; height: 420px;
+  top: 40px; left: 50%;
+  transform: translateX(-130%);
+  background: radial-gradient(circle, rgba(255, 59, 92, 0.12), transparent 65%);
+  animation: drift-c 20s ease-in-out infinite alternate;
+}
+
+@keyframes drift-c {
+  from { transform: translateX(-130%) translateY(0); }
+  to { transform: translateX(-115%) translateY(36px); }
+}
+
+/* glowing headlines */
+.hero h1 {
+  filter: drop-shadow(0 0 28px rgba(61, 255, 115, 0.28));
+}
+
+.section h2 {
+  text-shadow: 0 0 32px rgba(65, 199, 255, 0.22);
+}
+
+/* fluoro status labels */
+.status-done { color: var(--fl-green); text-shadow: 0 0 14px rgba(61, 255, 115, 0.65); }
+.status-next { color: var(--fl-blue); text-shadow: 0 0 14px rgba(65, 199, 255, 0.65); }
+.status-probed { color: var(--fl-red); text-shadow: 0 0 14px rgba(255, 59, 92, 0.65); }
+
+/* fluoro terminal */
+.t-ok { color: var(--fl-green); text-shadow: 0 0 12px rgba(61, 255, 115, 0.7); }
+.t-dim { color: #7d8aa0; }
+
+.hero-terminal {
+  border-color: rgba(61, 255, 115, 0.22);
+  animation: term-breathe 4.5s ease-in-out infinite;
+}
+
+@keyframes term-breathe {
+  0%, 100% { box-shadow: 0 24px 80px -24px rgba(0, 0, 0, 0.8), 0 0 34px -14px rgba(61, 255, 115, 0.35), 0 0 60px -30px rgba(65, 199, 255, 0.4); }
+  50% { box-shadow: 0 24px 80px -24px rgba(0, 0, 0, 0.8), 0 0 54px -10px rgba(61, 255, 115, 0.5), 0 0 90px -24px rgba(65, 199, 255, 0.55); }
+}
+
+/* flowing fluoro primary button */
+.btn-primary {
+  background: linear-gradient(135deg, #2dd4bf, #3dff73 45%, #41c7ff 90%);
+  background-size: 200% 200%;
+  animation: btn-flow 6s ease-in-out infinite alternate;
+  box-shadow: 0 8px 32px -8px rgba(61, 255, 115, 0.55), 0 0 28px -8px rgba(65, 199, 255, 0.5);
+}
+
+@keyframes btn-flow {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+
+.btn-primary:hover {
+  box-shadow: 0 14px 44px -8px rgba(61, 255, 115, 0.7), 0 0 44px -6px rgba(65, 199, 255, 0.6);
+}
+
+/* pipeline nodes in fluoro sequence */
+.pnode:nth-child(1) circle { stroke: var(--fl-green); fill: rgba(61, 255, 115, 0.12); filter: drop-shadow(0 0 6px rgba(61, 255, 115, 0.8)); }
+.pnode:nth-child(2) circle { stroke: var(--fl-blue); fill: rgba(65, 199, 255, 0.12); filter: drop-shadow(0 0 6px rgba(65, 199, 255, 0.8)); }
+.pnode:nth-child(3) circle { stroke: var(--accent); fill: rgba(94, 234, 212, 0.12); filter: drop-shadow(0 0 6px rgba(94, 234, 212, 0.8)); }
+.pnode:nth-child(4) circle { stroke: var(--accent-2); fill: rgba(167, 139, 250, 0.12); filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.8)); }
+.pnode:nth-child(5) circle { stroke: var(--fl-red); fill: rgba(255, 59, 92, 0.12); filter: drop-shadow(0 0 6px rgba(255, 59, 92, 0.8)); }
+.pnode:nth-child(6) circle { stroke: var(--fl-green); fill: rgba(61, 255, 115, 0.12); filter: drop-shadow(0 0 6px rgba(61, 255, 115, 0.8)); }
+
+/* fluoro card hover */
+.card:hover {
+  border-color: rgba(61, 255, 115, 0.4);
+  box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.7), 0 0 34px -12px rgba(61, 255, 115, 0.4), 0 0 60px -20px rgba(65, 199, 255, 0.35);
+}
+
+/* glowing doc links */
+.card h3 a { text-decoration: none; transition: color 0.2s ease, text-shadow 0.2s ease; }
+.card h3 a:hover { color: #fff; text-shadow: 0 0 18px rgba(61, 255, 115, 0.8); }
+.doc-prose a:hover { text-shadow: 0 0 16px rgba(61, 255, 115, 0.7); }
+
+/* fluoro gate numbers + states */
+.gate-num { color: var(--fl-green); text-shadow: 0 0 12px rgba(61, 255, 115, 0.7); }
+.gate-active { border-color: rgba(61, 255, 115, 0.4); }
+.gate-active .gate-state { color: var(--fl-green); border-color: rgba(61, 255, 115, 0.45); text-shadow: 0 0 12px rgba(61, 255, 115, 0.6); }
+
+/* fluoro eyebrow pulse */
+.pulse { background: var(--fl-green); animation-name: pulse-green; }
+
+@keyframes pulse-green {
+  0% { box-shadow: 0 0 0 0 rgba(61, 255, 115, 0.55); }
+  70% { box-shadow: 0 0 0 10px rgba(61, 255, 115, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(61, 255, 115, 0); }
+}

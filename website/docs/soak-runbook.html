@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>72-hour soak runbook — Astral Project</title>
+  <meta name="description" content="Sizing, shakedown, supervision, judging." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 27H3Z' fill='none' stroke='%235eead4' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='19' r='3.5' fill='%235eead4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 3 29 27H3Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" />
+          <circle cx="16" cy="19" r="3.5" fill="currentColor" />
+        </svg>
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/soak-runbook.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="72-hour-soak-runbook">72-hour soak runbook</h1>
+<p>Status: <strong>procedure defined, soak not run.</strong> This is the exact procedure the
+first 72h run follows — machine choice, shakedown, supervision, judging, and
+what happens when something dies mid-soak.</p>
+<h2 id="do-not-use-your-laptop">Do not use your laptop</h2>
+<p>The recorder's load is trivial (one WebSocket per stream, zstd compression on
+chunk roll every 2,000 records) — the laptop is in no danger. The problem is
+the lid: sleep kills connections, Wi-Fi drops, and a 72h desktop run that
+pauses at hour 30 is not a soak, it is a story. Run the soak on a cheap VPS
+that does not sleep:</p>
+<ul>
+<li>Any 2 vCPU / 4 GB box with <strong>40 GB+ free disk</strong> (Hetzner CX22/CX32 class,
+  ~€4–6/mo; any equivalent droplet works). The strategy docs already budget
+  $30/mo for collection — this fits inside it.</li>
+<li>Disk math, stated so it can be checked: Binance <code>book_diff</code> arrives at
+  ~10/s with ~0.5–3 KB frames → worst case ~2.5 GB/day/stream raw, zstd
+  compresses repetitive JSON ~5–10x → ~0.3 GB/day/stream. Four streams ×
+  three days lands around <strong>2–4 GB total</strong>. Budget 10 GB; 40 GB is comfort.</li>
+<li>Region matters more than size: pick a region where the venue futures/spot
+  endpoints are <strong>not geo-blocked and not TLS-intercepted</strong> (the README
+  records a Fortinet interception that broke rustls outright). The shakedown
+  below proves the route before the clock starts.</li>
+</ul>
+<h2 id="shakedown-first-16-hours-same-box">Shakedown first (1–6 hours, same box)</h2>
+<p>Never start the 72h clock on an unproven machine. On the VPS, from a clean
+checkout at a recorded commit:</p>
+<pre><code class="language-sh">git rev-parse HEAD                      # record the commit
+cargo build -p astra-record
+</code></pre>
+<p>Run one short capture per stream (10–30 min is enough) and audit each:</p>
+<pre><code class="language-sh">./target/debug/astra-record capture --output ./shake-binance-btc \
+  --venue binance --market spot --symbol BTC/USDT --channel book_diff \
+  --duration-secs 600
+./target/debug/astra-record check --input ./shake-binance-btc
+# expect: verdict     healthy
+</code></pre>
+<p>The shakedown passes when every stream connects, frames arrive near venue
+rate, <code>check</code> is <code>healthy</code>, and <code>git rev-parse HEAD</code> is recorded. Fix
+firewall/TLS/geo issues here, not at hour 40. Delete the shakedown captures
+after — they are not the soak.</p>
+<h2 id="start-the-soak">Start the soak</h2>
+<pre><code class="language-sh">ops/soak.sh start
+</code></pre>
+<p>This builds, then launches four streams under <code>nohup</code> (Binance spot BTC+ETH,
+Bybit spot+perp BTC) for 259,200 seconds with generous reconnects. Record:</p>
+<ul>
+<li>the commit hash, the VPS provider/region/specs, and the start timestamp</li>
+<li>the PIDs printed per stream</li>
+</ul>
+<p>Then walk away. <code>nohup</code> + <code>disown</code>-style backgrounding survives SSH drops;
+do not run it under a laptop-tethered <code>ssh</code> session without <code>nohup</code> (the
+script already handles that).</p>
+<h2 id="supervise-cheaply-not-constantly">Supervise (cheaply, not constantly)</h2>
+<pre><code class="language-sh">ops/soak.sh status    # RUNNING vs STOPPED per stream
+ops/soak.sh check     # per-stream verdicts + soak_verdict; non-zero on issues
+</code></pre>
+<p>Check once or twice a day. A STOPPED stream mid-soak with a <code>duration_elapsed</code>
+stop reason and a <code>healthy</code> check is data, not failure — note it and let the
+rule below decide. Do not restart individual streams to "top up" the soak:
+<strong>a restarted soak is a new soak, not a continuation.</strong></p>
+<h2 id="if-the-machine-dies">If the machine dies</h2>
+<p>The partial capture plus its <code>check</code> output is still evidence — copy both
+off the box, record what happened, and restart from zero on a fresh (or
+fixed) machine. The failed attempt goes in the README failures section with
+its <code>check</code> output, not in the bin.</p>
+<h2 id="judge">Judge</h2>
+<p>After 72h, <code>ops/soak.sh check</code> must report <code>healthy</code> on all four streams
+(zero sequence breaks, every chunk hash-verified, every gap recorded with its
+window marked unreliable), and the <code>gap</code> lines must show fewer than one
+unexplained gap per instrument-day. Pass flips ROADMAP Gate 1 "Capture is
+lossless" and "Sequence gaps are handled" toward VERIFIED; fail records the
+findings and the soak reruns from zero.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/soak-runbook.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

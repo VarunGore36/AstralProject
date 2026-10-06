@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Normalized event schema v1 — Astral Project</title>
+  <meta name="description" content="The Parquet format the normalizer targets." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 27H3Z' fill='none' stroke='%235eead4' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='19' r='3.5' fill='%235eead4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 3 29 27H3Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" />
+          <circle cx="16" cy="19" r="3.5" fill="currentColor" />
+        </svg>
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/normalized-schema.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="normalized-event-schema-v1">Normalized event schema (v1)</h1>
+<p>Status: <strong>implemented for <code>book_diff</code>, <code>trade</code>, and <code>top_of_book</code></strong>
+(<code>astra-normalize</code>). <code>funding</code> and <code>liquidation</code> remain reserved table names
+only. The spec below is the format the normalizer targets and the replay engine
+builds against — one decided format instead of three invented ones.</p>
+<h2 id="why-this-document-comes-before-code">Why this document comes before code</h2>
+<p>Every downstream claim depends on this schema: deterministic replay needs
+byte-identical normalized output, the audit trail needs provenance, and
+research needs queryable columns. Designing it now forces the decisions while
+they are still cheap. Changing it later means migrating stored data.</p>
+<h2 id="sources">Sources</h2>
+<p>The schema is derived from what the recorder already captures, not imagined:</p>
+<ul>
+<li><code>CaptureRecord</code>: <code>seq</code>, instrument (venue + market type + symbol), channel,
+  <code>ts_socket</code>, optional <code>ts_exchange</code>, raw <code>payload</code>, <code>CaptureFlags</code></li>
+<li>Binance <code>depthUpdate</code>: <code>U</code>/<code>u</code> update ids, <code>b</code>/<code>a</code> levels, event time <code>E</code></li>
+<li>Bybit <code>orderbook</code>: <code>u</code> version, <code>b</code>/<code>a</code> levels, <code>type</code> snapshot/delta</li>
+<li>Bybit <code>publicTrade</code>, <code>allLiquidation</code>; Coinbase <code>matches</code>, <code>ticker</code></li>
+<li><code>GapMarker</code>: synthetic records marking holes with reasons</li>
+</ul>
+<p>Anything the current capture cannot produce is marked as such below rather
+than specified wishfully.</p>
+<h2 id="tables">Tables</h2>
+<p>One table per channel family. A single unified table would force nullable
+columns for everything and make every query pay for every channel's shape.</p>
+<h3 id="book_diff"><code>book_diff</code></h3>
+<p>One row per venue book-update event.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>venue</code></td>
+<td>string</td>
+<td><code>binance</code>, <code>bybit</code> (more when connected)</td>
+</tr>
+<tr>
+<td><code>market_type</code></td>
+<td>string</td>
+<td><code>spot</code>, <code>perp_usdt</code></td>
+</tr>
+<tr>
+<td><code>symbol</code></td>
+<td>string</td>
+<td>canonical <code>BASE/QUOTE</code> (<code>BTC/USDT</code>, <code>BTC/USD</code>)</td>
+</tr>
+<tr>
+<td><code>ts_exchange</code></td>
+<td>int64 ns, nullable</td>
+<td>venue event time when the payload carries one (<code>E</code> on Binance depth)</td>
+</tr>
+<tr>
+<td><code>ts_socket</code></td>
+<td>int64 ns</td>
+<td>local read time, always present</td>
+</tr>
+<tr>
+<td><code>ts_ready</code></td>
+<td>int64 ns</td>
+<td>when the normalized row was produced — <strong>not captured yet</strong></td>
+</tr>
+<tr>
+<td><code>first_update_id</code></td>
+<td>uint64, nullable</td>
+<td>Binance <code>U</code>; Bybit <code>u</code></td>
+</tr>
+<tr>
+<td><code>last_update_id</code></td>
+<td>uint64, nullable</td>
+<td>Binance <code>u</code>; Bybit <code>u</code></td>
+</tr>
+<tr>
+<td><code>bids</code></td>
+<td>list of (price, qty) fixed decimal</td>
+<td>levels touched by this event</td>
+</tr>
+<tr>
+<td><code>asks</code></td>
+<td>list of (price, qty) fixed decimal</td>
+<td>levels touched by this event</td>
+</tr>
+<tr>
+<td><code>capture_id</code></td>
+<td>string</td>
+<td>source capture</td>
+</tr>
+<tr>
+<td><code>seq</code></td>
+<td>uint64</td>
+<td>position in the source capture</td>
+</tr>
+<tr>
+<td><code>flags</code></td>
+<td>uint32</td>
+<td>capture quality bits</td>
+</tr>
+<tr>
+<td><code>synthetic</code></td>
+<td>bool</td>
+<td>true for gap markers (which carry no levels)</td>
+</tr>
+<tr>
+<td><code>gap_reason</code></td>
+<td>string, nullable</td>
+<td>marker reason (<code>venue_close</code>, <code>read_error: …</code>, <code>update_id_gap: …</code>)</td>
+</tr>
+<tr>
+<td><code>gap_attempts</code></td>
+<td>uint32, nullable</td>
+<td>reconnect attempts (0 for sequence gaps)</td>
+</tr>
+<tr>
+<td><code>gap_started</code></td>
+<td>int64 ns, nullable</td>
+<td>last good frame before the hole</td>
+</tr>
+<tr>
+<td><code>gap_ended</code></td>
+<td>int64 ns, nullable</td>
+<td>first frame after the hole</td>
+</tr>
+</tbody>
+</table>
+<h3 id="trade"><code>trade</code></h3>
+<p>One row per venue trade print. Aggregated messages (Bybit <code>publicTrade</code>
+bundles) expand to one row per trade, distinguished by <code>print_index</code> —
+decided because a bundle is a transport artifact, not a market event.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>venue</code>, <code>market_type</code>, <code>symbol</code></td>
+<td>strings</td>
+<td>as above</td>
+</tr>
+<tr>
+<td><code>ts_exchange</code></td>
+<td>int64 ns, nullable</td>
+<td>trade time when carried and parseable (<code>T</code> millis; Coinbase RFC3339, nulled when unparseable)</td>
+</tr>
+<tr>
+<td><code>ts_socket</code></td>
+<td>int64 ns</td>
+<td>local read time</td>
+</tr>
+<tr>
+<td><code>ts_ready</code></td>
+<td>int64 ns</td>
+<td><strong>not captured yet</strong></td>
+</tr>
+<tr>
+<td><code>trade_id</code></td>
+<td>string, nullable</td>
+<td>venue trade id as sent (numbers stringified, strings preserved)</td>
+</tr>
+<tr>
+<td><code>price</code>, <code>quantity</code></td>
+<td>fixed decimal, nullable</td>
+<td>null only on synthetic gap rows</td>
+</tr>
+<tr>
+<td><code>side</code></td>
+<td>string, nullable</td>
+<td>canonical <code>Buy</code>/<code>Sell</code>; derived from the maker flag on Binance, passed through on Bybit, case-normalized on Coinbase</td>
+</tr>
+<tr>
+<td><code>print_index</code></td>
+<td>uint32</td>
+<td>0-based position within the source message; always 0 except expanded bundles</td>
+</tr>
+<tr>
+<td><code>capture_id</code>, <code>seq</code>, <code>flags</code>, <code>synthetic</code></td>
+<td></td>
+<td>as above</td>
+</tr>
+<tr>
+<td><code>gap_reason</code>, <code>gap_attempts</code>, <code>gap_started</code>, <code>gap_ended</code></td>
+<td>nullable</td>
+<td>as in <code>book_diff</code>; gap markers arrive per channel</td>
+</tr>
+</tbody>
+</table>
+<h3 id="top_of_book"><code>top_of_book</code></h3>
+<p>One row per top-of-book update (Binance <code>bookTicker</code>, Coinbase <code>ticker</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>venue</code>, <code>market_type</code>, <code>symbol</code></td>
+<td>strings</td>
+<td>as above</td>
+</tr>
+<tr>
+<td><code>ts_exchange</code>, <code>ts_socket</code>, <code>ts_ready</code></td>
+<td>int64 ns</td>
+<td><code>ts_ready</code> <strong>not captured yet</strong></td>
+</tr>
+<tr>
+<td><code>best_bid</code>, <code>best_bid_qty</code></td>
+<td>fixed decimal, nullable</td>
+<td>null only on synthetic gap rows</td>
+</tr>
+<tr>
+<td><code>best_ask</code>, <code>best_ask_qty</code></td>
+<td>fixed decimal, nullable</td>
+<td>null only on synthetic gap rows</td>
+</tr>
+<tr>
+<td><code>capture_id</code>, <code>seq</code>, <code>flags</code>, <code>synthetic</code></td>
+<td></td>
+<td>as above</td>
+</tr>
+<tr>
+<td><code>gap_reason</code>, <code>gap_attempts</code>, <code>gap_started</code>, <code>gap_ended</code></td>
+<td>nullable</td>
+<td>as in <code>book_diff</code>; gap markers arrive per channel</td>
+</tr>
+</tbody>
+</table>
+<h3 id="funding-and-liquidation"><code>funding</code> and <code>liquidation</code></h3>
+<p>Specified only as reserved table names. No parser exists, and Binance
+<code>funding</code>/<code>liquidation</code> are not live-verified (geo-blocked). Columns will be
+defined from the first real payloads, not from documentation.</p>
+<h2 id="fixed-rules">Fixed rules</h2>
+<ul>
+<li>Prices and quantities are fixed-point decimals (scale 10^8, matching
+  <code>Fixed</code>). No floats in any table, for the same reason as in code.</li>
+<li>Timestamps are int64 nanoseconds since epoch. The three-clock system
+  (<code>exchange</code>, <code>socket</code>, <code>ready</code>) is what makes latency measurable later.</li>
+<li>Raw payloads are <strong>not</strong> stored in normalized tables. The raw chunks remain
+  the source of truth; normalization must be re-derivable from them or it is
+  not a normalization.</li>
+<li>Synthetic gap markers become rows with <code>synthetic = true</code> and null
+  market fields, so a replay over normalized data sees the same holes as a
+  replay over raw data.</li>
+</ul>
+<h2 id="partitioning-and-files">Partitioning and files</h2>
+<pre><code class="language-text">dataset/
+└── venue=binance/
+    └── market_type=spot/
+        └── symbol=BTC_USDT/
+            └── channel=book_diff/
+                └── date=2026-09-30/
+                    ├── part-00000.parquet
+                    └── ...
+</code></pre>
+<p>Hive-style partitions (<code>venue</code>, <code>market_type</code>, <code>symbol</code>, <code>channel</code>, <code>date</code>).
+Symbols use <code>_</code> instead of <code>/</code> because <code>/</code> is a path separator. One writer per
+partition per day; files are immutable once closed, mirroring chunk semantics.</p>
+<h2 id="validation-rules">Validation rules</h2>
+<p>Every normalized batch must satisfy these before it is accepted:</p>
+<pre><code class="language-text">timestamps within [capture start, capture end + tolerance]   [deferred: tolerance undecided]
+prices &gt; 0 where present                                     [enforced]
+quantities &gt;= 0 where present                                [enforced]
+update ids continuous within the batch unless a synthetic gap row intervenes   [not enforced: continuity is the capture layer's job, checked there]
+no duplicate (capture_id, seq, print_index) triples          [enforced]
+schema version recorded in file metadata, equal to the writer's version   [enforced]
+</code></pre>
+<p>A batch that fails validation is rejected whole, never partially accepted.</p>
+<h2 id="open-questions-undecided-deliberately">Open questions (undecided, deliberately)</h2>
+<ul>
+<li>The tolerance on timestamp validation (clock skew between venue and local).</li>
+<li>Whether <code>ts_ready</code> belongs in the table or in sidecar metadata.</li>
+<li>Compression codec and row-group sizing (measure on real data first).</li>
+<li>How normalization itself is made deterministic (sorting, float-free
+  conversions, no wall-clock reads) — required before the determinism claim,
+  designed with the replay engine, not here.</li>
+</ul>
+<h2 id="what-this-document-is-not">What this document is not</h2>
+<p>Not a migration plan, not a query engine, not a promise of Parquet files by
+any date. It is the format that future code must target, so that when the
+normalizer is built, its output is already specified.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/normalized-schema.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

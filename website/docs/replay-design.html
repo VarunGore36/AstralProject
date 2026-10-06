@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Replay engine design v1 — Astral Project</title>
+  <meta name="description" content="The contract the deterministic engine satisfies." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 27H3Z' fill='none' stroke='%235eead4' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='19' r='3.5' fill='%235eead4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 3 29 27H3Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" />
+          <circle cx="16" cy="19" r="3.5" fill="currentColor" />
+        </svg>
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/replay-design.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="replay-engine-design-v1">Replay engine design (v1)</h1>
+<p>Status: <strong>implemented</strong> (<code>astra-replay</code>: event core, <code>book-top</code> strategy, CLI).
+This document is the contract the engine satisfies — written before the engine
+so the engine can be judged against it. The v1 scope below has since grown to
+cover <code>trade</code> and <code>top_of_book</code> alongside <code>book_diff</code>; the rules are unchanged.</p>
+<h2 id="what-replay-is">What replay is</h2>
+<p>Deterministic re-emission of captured events, in order, driving strategy
+callbacks. Given the same capture, the same code, and the same seed, every
+replay produces identical signals. Replay answers: "what would this logic
+have seen, had it been running during the capture?"</p>
+<p>Replay is <strong>not</strong> a backtester. It performs no fills, holds no positions,
+models no costs. Execution simulation is a separate engine that consumes
+replay output. Conflating the two is how look-ahead bias and fill fantasy
+enter through the back door.</p>
+<h2 id="input-raw-captures-not-parquet">Input: raw captures, not Parquet</h2>
+<p>Replay reads raw capture directories (chunks + index + manifest), not
+normalized datasets. Reasons:</p>
+<ul>
+<li>The raw capture is the source of truth; replaying a derived view cannot
+  validate the derivation.</li>
+<li>The determinism claim itself is "replays of one captured day produce byte
+  identical normalised output" — replay must therefore be able to <em>feed</em>
+  normalization, which requires raw input.</li>
+<li>Gap markers, flags, and unparseable frames exist in raw form. A replay that
+  cannot surface them is a cleaner fiction than the capture, not a replay.</li>
+</ul>
+<h2 id="event-model-v1-scope">Event model (v1 scope)</h2>
+<p>Replays emit, in order:</p>
+<ul>
+<li><code>book_diff</code> events with their update spans and level sets</li>
+<li><code>trade</code> events, one per print (Bybit bundles expand via <code>print_index</code>)</li>
+<li><code>top_of_book</code> events (Binance <code>bookTicker</code>, Coinbase <code>ticker</code>)</li>
+<li>synthetic gap markers, exactly as recorded</li>
+<li>stream end</li>
+</ul>
+<p>A replay over a capture containing other channels replays the subset above
+and reports the rest as skipped — the same accounting as the normalizer.</p>
+<h2 id="ordering-rules">Ordering rules</h2>
+<p>Single capture: <code>seq</code> order, which is capture order. No reordering, ever.</p>
+<p>Multiple captures (v2, not v1): <code>ts_socket</code> order with <code>(capture_id, seq)</code>
+as tiebreak. Timestamp ties across captures are real (two venues, same
+millisecond) and the tiebreak must be total and stable, or two runs diverge.</p>
+<h2 id="virtual-time">Virtual time</h2>
+<p>Strategies observe event timestamps, never the wall clock. The engine exposes
+a virtual clock pinned to the current event's <code>ts_socket</code>. Any strategy code
+path that reads wall-clock time, spawns threads, iterates hash maps, or draws
+unseeded randomness breaks determinism by construction, and the engine cannot
+detect it — so the strategy interface must make the deterministic path the
+easy one (seeded RNG handle provided, no clock provided).</p>
+<h2 id="strategy-interface-sketch-not-api">Strategy interface (sketch, not API)</h2>
+<pre><code class="language-rust">trait Strategy {
+    fn on_book_diff(&amp;mut self, event: &amp;BookDiffEvent, ctx: &amp;mut Context);
+    fn on_gap(&amp;mut self, marker: &amp;GapMarker, ctx: &amp;mut Context);
+}
+</code></pre>
+<p><code>Context</code> carries virtual time, the seeded RNG, and a signal sink. Signals
+are opaque bytes plus a schema tag — the engine hashes them per run, and equal
+hashes across runs is the determinism test. The engine never interprets a
+signal; interpretation is the backtester's job.</p>
+<h2 id="gap-semantics">Gap semantics</h2>
+<p>Gaps surface as events, exactly as they occurred live. The strategy sees the
+same hole the live system would have seen, and any book the strategy keeps
+must break the same way the reconstructor breaks. A replay that papers over
+gaps measures a market that never existed.</p>
+<h2 id="determinism-rules">Determinism rules</h2>
+<ul>
+<li>Same capture bytes + same code + same seed → identical signal hashes.</li>
+<li>No wall-clock reads in the event path (enforced by review, not by compiler).</li>
+<li>No hash-map iteration anywhere a signal depends on order; <code>BTreeMap</code> where
+  order matters.</li>
+<li>Single-threaded event loop for v1. Parallelism, if ever added, merges
+  deterministically or not at all.</li>
+<li><code>ts_ready</code> (normalization time) is excluded from signal-relevant state —
+  it differs per run by definition.</li>
+</ul>
+<h2 id="acceptance-criteria">Acceptance criteria</h2>
+<ul>
+<li>Ten replays of one captured day → ten identical signal hashes (Gate 1 bar).</li>
+<li>Same capture + same code on a second machine → identical hashes
+  (cross-machine bar; needs a second machine to execute, mechanism defined here).</li>
+<li>A replay with an injected gap produces the documented broken-book behavior,
+  not a silent continuation.</li>
+</ul>
+<h2 id="open-questions-undecided-deliberately">Open questions (undecided, deliberately)</h2>
+<ul>
+<li>As-fast-as-possible only for v1, or a paced mode for debugging?</li>
+<li>Multi-instrument merge semantics (v2 ordering rule is sketched above but
+  untested).</li>
+<li><code>trade</code> / <code>top_of_book</code> event shapes are implemented (<code>TradeEvent</code> with
+  <code>print_index</code>, <code>TopBookEvent</code>); multi-instrument merge semantics (v2 ordering
+  rule sketched above) remain untested.</li>
+<li>Where signals are recorded and hashed (experiment hashing is future work).</li>
+<li>Whether the engine reuses <code>record</code>/<code>replay</code> CLI surface or gets its own
+  binary (<code>astra-replay</code> vs <code>astra-record replay</code>).</li>
+</ul>
+<h2 id="what-this-document-is-not">What this document is not</h2>
+<p>Not an implementation plan with dates, not a backtester design, not a
+strategy SDK. It is the contract the future engine must satisfy, written
+before the engine so the engine can be judged against it.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/replay-design.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

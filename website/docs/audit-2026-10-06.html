@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pipeline audit 2026-10-06 — Astral Project</title>
+  <meta name="description" content="145 tests, 3 fixes, 13 ranked findings." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 27H3Z' fill='none' stroke='%235eead4' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='19' r='3.5' fill='%235eead4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 3 29 27H3Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" />
+          <circle cx="16" cy="19" r="3.5" fill="currentColor" />
+        </svg>
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/audit-2026-10-06.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="measurement-pipeline-audit-2026-10-06">Measurement-pipeline audit — 2026-10-06</h1>
+<p>The completed half (<code>astra-types</code>, <code>astra-book</code>, <code>astra-record</code>,
+<code>astra-normalize</code>, <code>astra-replay</code>, <code>ops/soak.sh</code>) run to the throttle:
+full suite, lints, panic-surface scan, and a line-by-line review of every
+production path. Three bugs fixed same-day (below). Everything else is
+reported as found — including the things that are fine, so the next reader
+does not re-audit them.</p>
+<h2 id="method-and-baseline">Method and baseline</h2>
+<ul>
+<li><code>cargo fmt --all -- --check</code>: clean.</li>
+<li><code>cargo clippy --workspace --all-targets -- -D warnings</code>: <strong>zero warnings</strong>
+  (one caught mid-audit in the auditor's own fix — dead backoff doubling —
+  and removed, not silenced).</li>
+<li><code>cargo test --workspace</code>: <strong>145 passed, 0 failed, 0 ignored</strong>
+  (17 book + 16 normalize + 86 record + 10 replay + 15 types + 1 capture
+  saturation counted in record). Four tests are new in this audit.</li>
+<li>Panic-surface scan: every <code>.unwrap()</code>/<code>.expect()</code> in production code
+  inspected. All remaining ones are in test modules except one provably-safe
+  site (<code>store.rs</code>, chunk framing — the slice length is guarded two lines
+  above; flagged as hygiene, not a bug).</li>
+<li><strong>Not covered by this audit:</strong> live venue traffic (futures endpoints are
+  geo-blocked from this machine, same as ever), the 72h soak, a second
+  machine, and wall-clock performance beyond the recorded live numbers.</li>
+</ul>
+<h2 id="fixed-in-this-audit">Fixed in this audit</h2>
+<p><strong>1. Continuity checks panicked on <code>u64::MAX</code> update IDs.</strong>
+<code>capture.rs</code> sequence tracker, <code>check.rs</code> offline audit, and
+<code>astra-book</code> reconstructor all computed <code>previous + 1</code> on venue-supplied
+<code>u64</code> IDs. In debug builds (every <code>cargo test</code> / <code>cargo run</code> invocation)
+that expression panics on overflow — proven with a standalone reproduction
+(exit 101, <code>attempt to add with overflow</code>). Trigger: two frames where the
+first carries <code>u</code>/<code>U</code> near <code>u64::MAX</code>. Real venues will never send that;
+a hostile local feed (<code>--url</code> pointed at an attack server) could crash the
+recorder, the audit, and reconstruction alike — exactly the class this
+project claims to reject ("all rejected, none panicked"). All three sites
+now use <code>checked_add</code>; at saturation no forward jump is representable, so
+no gap is reported and nothing panics. Regression tests at all three sites.</p>
+<p><strong>2. Reconnect backoff accumulated to 30 seconds across long soaks.</strong>
+<code>backoff</code> doubled per reconnect with no reset, saturating at 30s. Over 72h
+with occasional blips, every late-soak reconnect would wait up to 30s —
+manufacturing holes. Worse, the doubling was load-bearing nothing: a failed
+reconnect attempt ends the capture outright, so there was no retry stream to
+back off across. Replaced with a fixed 250ms wait (lossless-first: a blip
+costs a quarter-second hole, always), dead <code>RECONNECT_MAX_BACKOFF</code> removed.
+Existing reconnect tests green.</p>
+<p><strong>3. <code>check</code> trusted the manifest; replay and normalize did not.</strong>
+<code>replay</code> and <code>normalize</code> refuse captures whose <code>frames_written</code> disagrees
+with the chunks on disk, but <code>check</code> — the tool the soak is judged with —
+never compared them. A doctored manifest (or a capture killed before
+<code>finish()</code> rewrote it) audited <code>healthy</code>. <code>check</code> now reports
+<code>manifest_mismatch</code> (claimed vs actual venue frames, unhealthy when set)
+and prints <code>stop_reason</code> (previously invisible — a <code>-9</code>'d capture looked
+identical to a clean one). CLI prints both lines. Test helper corrected to
+write venue-only frame counts, matching production.</p>
+<h2 id="open-findings-ranked-by-importance">Open findings (ranked by importance)</h2>
+<ol>
+<li><strong>Soak-scale memory: only <code>check</code> streams.</strong> <code>check</code> reads chunk by
+   chunk; <code>replay</code> and <code>normalize</code> <code>read_all</code> the entire capture into
+   memory. A 4-stream 72h soak holds millions of frames with multi-KB
+   payloads — single-digit GB RAM on the VPS that runs it. <code>check</code> will be
+   fine there; normalize/replay of a full soak on a 4 GB box may not be.
+   Recommendation: stream replay/normalize per chunk before the soak, or
+   size the judging box accordingly. Not fixed: needs design, not a patch.</li>
+<li><strong>Reopen semantics are half-true.</strong> <code>ChunkWriter</code> continues the chunk
+   sequence in an existing dir, but <code>Session::open</code> rewrites the manifest
+   (new capture id, zeroed counts) and restarts <code>seq</code> at 0. Re-capturing
+   into the same dir produces seq collisions across old/new chunks
+   (detectable via <code>seq_breaks</code>, but still). Recommendation: refuse to
+   capture into a non-empty dir, or implement real resume. Not changed:
+   all live paths use fresh dirs; changing CLI behavior unilaterally risks
+   unknown workflows.</li>
+<li><strong>No schema-version gate anywhere.</strong> Capture writes <code>schema_version</code>;
+   no tool reads it back. A format change would be silently misread.
+   Recommendation: refuse mismatched versions in <code>read_manifest</code> paths.</li>
+<li><strong><code>reconstruct</code> is the least strict reader.</strong> It never opens the
+   manifest (no frame-count check, no stop-reason visibility), never checks
+   <code>seq</code> continuity, and skips <code>SYNTHETIC</code> markers without counting
+   connection gaps or breaking the book on them — it relies on the
+   reconstructor's own update-ID discontinuity to break, which works for
+   sequence jumps but under-reports connection gaps in the summary.
+   Recommendation: share <code>check</code>'s prelude (manifest + seq walk) before
+   reconstructing.</li>
+<li><strong>Fail-loud inconsistency on bad data.</strong> An undecodable gap marker
+   aborts <code>normalize</code>/<code>replay</code> entirely, is counted by <code>check</code>, and is
+   skipped-then-possibly-broken-on by <code>reconstruct</code>; an invalid diff aborts
+   <code>compare</code> but is counted by <code>reconstruct</code>. Each choice is defensible
+   alone; together they mean the "same" corruption produces three different
+   outcomes depending on the subcommand. Recommendation: one documented
+   policy table.</li>
+<li><strong><code>--snapshot</code> bootstrap is Binance-only.</strong> Both <code>reconstruct</code> and
+   <code>verify</code> hardcode <code>Venue::Binance</code> + <code>BookSnapshot</code> parsing. Harmless
+   today (Bybit bootstraps in-band) and documented in the README, but a
+   confusing error for anyone holding a Bybit snapshot file.</li>
+<li><strong>Normalize is not idempotent into one output dir.</strong> Re-running into the
+   same directory appends <code>part-00001…</code> next to <code>part-00000…</code>, duplicating
+   rows. The cross-machine procedure already mandates fresh dirs, so this
+   bites only the careless — document-it territory.</li>
+<li><strong>Null-row vs skip divergence.</strong> An unparseable venue frame becomes a
+   null-field row in Parquet but counts as <code>skipped_unparseable</code> (no event)
+   in replay. A replay-over-normalized-data would therefore see a null trade
+   row where a raw replay sees nothing. Small, real, worth one test
+   when normalized-replay exists.</li>
+<li><strong>Tail holes have no gap records.</strong> The final disconnect (including
+   <code>reconnect_failed</code>, <code>reconnect_exhausted</code>, and <code>--max-reconnects 0</code>)
+   ends the capture with no trailing gap marker — only the manifest's
+   <code>stop_reason</code> covers it. Correct (no post-hole data exists to corrupt),
+   but the soak judge reads <code>gap</code> lines, so tail behavior must always be
+   read off the manifest, never the stream.</li>
+<li><strong>Live-book errors are invisible during capture.</strong> Failed book applies
+    are neither counted nor logged — only <code>book_updates</code> increments on
+    success. A capture whose live book silently stopped tracking looks
+    identical in the output to a healthy one. One counter would fix it.</li>
+<li><strong>Zero automated coverage on the operator surface.</strong> Both CLIs print
+    ~15-line reports and <code>ops/soak.sh</code> judges Gate 1, but all test targets
+    for both <code>main.rs</code> binaries report 0 tests. A renamed field or broken
+    <code>verdict</code> line (which <code>soak.sh check</code> parses!) would pass CI. The
+    verdict-format contract deserves at least a golden-output test.</li>
+<li><strong>Unvalidated trade sides and unbounded gap reasons.</strong> Bybit <code>S</code> values
+    pass through unvalidated; Coinbase sides are case-normalized but never
+    checked against Buy/Sell; tungstenite error strings go verbatim into gap
+    payloads. Live data is clean; hostile data gets stored verbatim. Low
+    priority by design (raw is raw), noted for completeness.</li>
+<li><strong>Benign by inspection (no action):</strong> duplicate/overlapping spans apply
+    twice harmlessly (set semantics); <code>round_div</code> rounds wrong only for
+    negative divisors, unreachable in prod (sole production divisor is the
+    constant +2 in <code>mid()</code>); <code>store.rs</code> framing <code>unwrap</code> is guard-proven
+    safe; <code>Timestamp::now</code> saturates at <code>i64::MAX</code>; Bybit subscribe
+    confirmations consume <code>seq</code> as venue frames by design (documented).</li>
+</ol>
+<h2 id="claim-spot-check">Claim spot-check</h2>
+<p>The README's live numbers (601-frame capture, 300/300 top-of-book, latency
+tables) cannot be re-observed from this machine (no venue route), but every
+code path that produces them was reviewed: counters increment in the right
+places, <code>frames_written</code> excludes synthetic records consistently between
+writer/manifest/replay/normalize — and now <code>check</code> too. One methodological
+note for the record: capture latency is measured from socket-read return to
+record-appended (processing latency, not venue-to-host), which matches the
+documented definition. Nothing in the verification record was found false;
+two layout-table rows were stale ("design only, not implemented") and were
+fixed in an earlier push.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/audit-2026-10-06.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

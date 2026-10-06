@@ -52,6 +52,7 @@
         <div class="hero-grid"></div>
         <div class="hero-glow hero-glow-a"></div>
         <div class="hero-glow hero-glow-b"></div>
+        <div class="hero-glow hero-glow-c"></div>
       </div>
       <div class="wrap hero-inner">
         <p class="eyebrow reveal"><span class="pulse" aria-hidden="true"></span>Open-source market infrastructure · Gate 1 in progress</p>
@@ -170,32 +171,32 @@ stop_reason duration_elapsed</code></pre>
         <div class="grid grid-2">
           <article class="card reveal">
             <p class="mono-label">doc · schema</p>
-            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/normalized-schema.md" target="_blank" rel="noopener">Normalized event schema v1 →</a></h3>
+            <h3><a href="docs/normalized-schema.html">Normalized event schema v1 →</a></h3>
             <p>The Parquet format the normalizer targets: <code>book_diff</code>, <code>trade</code>, <code>top_of_book</code> tables, partitioning, validation rules.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label">doc · replay</p>
-            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/replay-design.md" target="_blank" rel="noopener">Replay engine design v1 →</a></h3>
+            <h3><a href="docs/replay-design.html">Replay engine design v1 →</a></h3>
             <p>The contract the engine satisfies: event model, ordering, virtual time, gap semantics, determinism rules.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label">doc · repro</p>
-            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/cross-machine-repro.md" target="_blank" rel="noopener">Cross-machine procedure →</a></h3>
+            <h3><a href="docs/cross-machine-repro.html">Cross-machine procedure →</a></h3>
             <p>How a second machine reproduces a result: three hash equalities, exact commands, known limits.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label">doc · fills</p>
-            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/execution-model.md" target="_blank" rel="noopener">Execution model v1 →</a></h3>
+            <h3><a href="docs/execution-model.html">Execution model v1 →</a></h3>
             <p>When a resting limit order counts as filled: trade-print-through only, maker fees, gaps void. Spec written, code open.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label">doc · audit</p>
-            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/audit-2026-10-06.md" target="_blank" rel="noopener">Pipeline audit 2026-10-06 →</a></h3>
+            <h3><a href="docs/audit-2026-10-06.html">Pipeline audit 2026-10-06 →</a></h3>
             <p>145 tests, zero lints, 3 bugs fixed same-day, 13 open findings ranked. The throttle report.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label">doc · soak</p>
-            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/soak-runbook.md" target="_blank" rel="noopener">72-hour soak runbook →</a></h3>
+            <h3><a href="docs/soak-runbook.html">72-hour soak runbook →</a></h3>
             <p>Why the soak runs on a cheap VPS instead of a laptop: sizing, shakedown, supervision, judging.</p>
           </article>
         </div>
@@ -280,7 +281,7 @@ stop_reason duration_elapsed</code></pre>
       <div class="wrap">
         <p class="eyebrow reveal">Audit · 2026-10-06</p>
         <h2 id="audit-title" class="reveal">Run to the throttle.</h2>
-        <p class="section-sub reveal">Full suite, lints, panic-surface scan, and a line-by-line review of every production path in the measurement pipeline. Three bugs fixed same-day. Thirteen findings ranked and left open. Full detail in <a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/audit-2026-10-06.md" target="_blank" rel="noopener">the audit doc</a>.</p>
+        <p class="section-sub reveal">Full suite, lints, panic-surface scan, and a line-by-line review of every production path in the measurement pipeline. Three bugs fixed same-day. Thirteen findings ranked and left open. Full detail in <a href="docs/audit-2026-10-06.html">the audit doc</a>.</p>
         <div class="grid grid-3">
           <article class="card reveal"><h3>145 tests, all green</h3><p>17 book · 16 normalize · 86 record · 10 replay · 15 types, plus one overflow guard each at three sites. Zero ignored, zero failed.</p></article>
           <article class="card reveal"><h3>Zero clippy warnings</h3><p><code>cargo clippy --workspace --all-targets -- -D warnings</code> passes; <code>cargo fmt --check</code> clean. The lint caught a dead assignment in the auditor's own fix mid-audit.</p></article>
@@ -333,7 +334,7 @@ stop_reason duration_elapsed</code></pre>
           </article>
           <article class="card reveal">
             <p class="mono-label status-next">Open · 6–13</p>
-            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/audit-2026-10-06.md" target="_blank" rel="noopener">Eight more in the doc →</a></h3>
+            <h3><a href="docs/audit-2026-10-06.html">Eight more in the doc →</a></h3>
             <p>Tail holes, invisible live-book errors, zero CLI coverage, Binance-only snapshots, normalize idempotency, null-row divergence, unvalidated sides — plus the items verified benign, so nobody re-audits them.</p>
           </article>
         </div>

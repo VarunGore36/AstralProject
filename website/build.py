@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Build website/docs/*.html from docs/*.md so the site stands alone.
+
+Usage:  python3 website/build.py
+Reads ../docs/*.md, writes docs/<name>.html with the site chrome.
+Re-run after editing any doc. No dependencies beyond stdlib + markdown.
+"""
+
+import pathlib
+import markdown
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SRC = ROOT / "docs"
+OUT = ROOT / "website" / "docs"
+
+# (filename, nav label, page title, description)
+PAGES = [
+    ("normalized-schema.md", "Schema", "Normalized event schema v1",
+     "The Parquet format the normalizer targets."),
+    ("replay-design.md", "Replay", "Replay engine design v1",
+     "The contract the deterministic engine satisfies."),
+    ("cross-machine-repro.md", "Repro", "Cross-machine reproduction procedure",
+     "How a second machine reproduces a result."),
+    ("soak-runbook.md", "Soak", "72-hour soak runbook",
+     "Sizing, shakedown, supervision, judging."),
+    ("execution-model.md", "Fills", "Execution model v1",
+     "When a resting order counts as filled."),
+    ("audit-2026-10-06.md", "Audit", "Pipeline audit 2026-10-06",
+     "145 tests, 3 fixes, 13 ranked findings."),
+]
+
+TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title} — Astral Project</title>
+  <meta name="description" content="{desc}" />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 27H3Z' fill='none' stroke='%235eead4' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='19' r='3.5' fill='%235eead4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 3 29 27H3Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" />
+          <circle cx="16" cy="19" r="3.5" fill="currentColor" />
+        </svg>
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+{navlinks}
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/{src}" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+{body}
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/{src}" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
+"""
+
+
+def build() -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    navlinks = "\n".join(
+        f'        <a href="{name[:-3]}.html">{label}</a>' for name, label, _, _ in PAGES
+    )
+    for name, _, title, desc in PAGES:
+        text = (SRC / name).read_text()
+        body = markdown.markdown(
+            text, extensions=["fenced_code", "tables", "toc", "sane_lists"]
+        )
+        page = TEMPLATE.format(
+            title=title, desc=desc, navlinks=navlinks, body=body, src=name
+        )
+        (OUT / (pathlib.Path(name).stem + ".html")).write_text(page)
+        print(f"wrote website/docs/{pathlib.Path(name).stem}.html")
+
+
+if __name__ == "__main__":
+    build()

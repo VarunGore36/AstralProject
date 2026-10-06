@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Execution model v1 — Astral Project</title>
+  <meta name="description" content="When a resting order counts as filled." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 27H3Z' fill='none' stroke='%235eead4' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='19' r='3.5' fill='%235eead4'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 3 29 27H3Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" />
+          <circle cx="16" cy="19" r="3.5" fill="currentColor" />
+        </svg>
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/execution-model.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="execution-model-v1-conservative-fills-limit-maker-only">Execution model v1 (conservative fills, limit-maker only)</h1>
+<p>Status: <strong>specification only, not implemented.</strong> It exists so the first
+implementation judges fills by written rules instead of improvising them.
+Replay stays a re-emitter (<code>docs/replay-design.md</code>); this model consumes
+replay output and answers: "would this resting order have filled, and at
+what cost?" Nothing here executes anything — there is no order submission
+in this project.</p>
+<h2 id="scope">Scope</h2>
+<ul>
+<li>Limit orders only: side, limit price, quantity (all fixed-point, matching
+  <code>Fixed</code>). Market orders, stop orders, and cancels are explicitly out of
+  scope for v1.</li>
+<li>One venue, one instrument, one replay stream at a time. Cross-exchange
+  settlement (transfer delays, inventory) is a research question, not a fill
+  rule — see the carry/arbitrage notes.</li>
+</ul>
+<h2 id="the-fill-rule-tier-b-the-default">The fill rule (Tier B, the default)</h2>
+<p>A resting buy limit at price <code>P</code> fills <strong>if and only if</strong> a later <em>trade
+print</em> trades at or through <code>P</code> (print price <code>&lt;= P</code>). A resting sell fills
+on a later print at <code>&gt;= P</code>. Quote-only movement never fills anything — the
+"never assume fills" rule made mechanical.</p>
+<ul>
+<li>v1 fills the whole order at the limit price on the <strong>first</strong> through-print.
+  Partial fills across prints are out of scope; an order that never sees a
+  through-print expires unfilled at stream end.</li>
+<li>A through-print implies the market traded into the resting order, so v1
+  fills are <strong>maker</strong> fills. The fee tier is a required input (basis points,
+  per venue), defaulting to taker-with-no-rebate whenever the caller does not
+  state otherwise — optimism must be explicit.</li>
+<li>Any gap marker (<code>synthetic = true</code>) overlapping the order's live window
+  voids it: no fill is claimed across a hole. A replay that papers over gaps
+  measures a market that never existed.</li>
+</ul>
+<h2 id="costs-applied-per-fill">Costs applied per fill</h2>
+<pre><code class="language-text">gross edge (limit price vs reference)
+- maker fee (required tier, bps on notional)
+- slippage (0 for a limit filled at its own price — stated, not hidden)
+= net edge
+</code></pre>
+<p>Spread, market impact, latency, and funding are <strong>not</strong> in v1 — each gets its
+own row when measured, never a silent constant. A result that ignores them
+says so on the chart (see the epistemic rules).</p>
+<h2 id="output">Output</h2>
+<p>Per order: filled or expired-unfilled, fill price, fee paid, net edge, the
+print that caused the fill (or the stream end that expired it), and the full
+assumption header (fee tier, model version <code>exec-v1</code>, data tier, reproduce
+command). Optimistic variants (fill on quote touch) may exist only with an
+explicit <code>UNREALISTIC</code> label in the output itself.</p>
+<h2 id="acceptance">Acceptance</h2>
+<ul>
+<li>Unit tests on synthetic print sequences: through-print fills, touch-without-
+  print does not fill, wrong-side print does not fill, gap voids, expiry without
+  prints.</li>
+<li>Live check: run resting-limit probes over a real trade capture; every claimed
+  fill must cite its through-print. No print, no fill, no exceptions.</li>
+<li>Shadow-mode error (predicted vs tradable, Gate 2) is out of scope for v1 —
+  v1 only has to be honest, not yet calibrated.</li>
+</ul>
+<h2 id="open-questions-deliberately-undecided">Open questions (deliberately undecided)</h2>
+<ul>
+<li>Tier C queue-position modeling for maker orders (a research project, not a
+  parameter).</li>
+<li>Market-order fills at next-print price plus taker fee.</li>
+<li>Partial fills and multi-print sweeping.</li>
+<li>Per-venue fee schedules beyond a single bps input.</li>
+<li>Whether this ships as its own crate (<code>astra-exec</code>) or a replay consumer —
+  decided at implementation time, not here.</li>
+</ul>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/execution-model.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

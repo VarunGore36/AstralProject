@@ -1,0 +1,127 @@
+/* ---------- generated doc pages ---------- */
+
+.doc-page { padding-top: 8rem; }
+
+.doc-prose { color: var(--muted); }
+
+.doc-prose > *:first-child { margin-top: 0; }
+
+.doc-prose h1 {
+  color: var(--text);
+  font-size: clamp(1.9rem, 3.6vw, 2.7rem);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 0 0 0.6rem;
+  background: linear-gradient(180deg, #fff 45%, #9fb0c3 80%, #5eead4 140%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.doc-prose h2 {
+  color: var(--text);
+  font-size: 1.45rem;
+  letter-spacing: -0.01em;
+  margin: 2.6rem 0 0.9rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.doc-prose h3 {
+  color: var(--text);
+  font-size: 1.1rem;
+  margin: 1.8rem 0 0.6rem;
+}
+
+.doc-prose p { margin-bottom: 1.1rem; max-width: 68ch; }
+.doc-prose strong { color: var(--text); }
+
+.doc-prose a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.doc-prose a:hover { color: #fff; }
+
+.doc-prose ul, .doc-prose ol { margin: 0 0 1.2rem 1.4rem; }
+.doc-prose li { margin-bottom: 0.45rem; max-width: 66ch; }
+.doc-prose li::marker { color: var(--accent); }
+
+.doc-prose blockquote {
+  border-left: 2px solid var(--accent);
+  padding: 0.2rem 0 0.2rem 1.1rem;
+  margin: 0 0 1.2rem;
+  color: var(--text);
+}
+
+.doc-prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2.2rem 0;
+}
+
+.doc-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1.4rem;
+  font-size: 0.9rem;
+  display: block;
+  overflow-x: auto;
+}
+
+.doc-prose th, .doc-prose td {
+  text-align: left;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.doc-prose th {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 500;
+}
+
+.doc-prose tr:hover td { background: rgba(94, 234, 212, 0.03); }
+
+.doc-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  color: var(--accent);
+  background: rgba(94, 234, 212, 0.07);
+  border-radius: 5px;
+  padding: 0.12em 0.4em;
+}
+
+.doc-prose pre {
+  background: rgba(9, 13, 21, 0.8);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.2rem;
+  margin: 0 0 1.3rem;
+  overflow-x: auto;
+  font-size: 0.84rem;
+  line-height: 1.7;
+  box-shadow: 0 18px 60px -30px rgba(0, 0, 0, 0.9), 0 0 40px -22px rgba(94, 234, 212, 0.35);
+}
+
+.doc-prose pre code {
+  background: none;
+  padding: 0;
+  color: #c9d4e2;
+}
+
+/* doc sub-nav stays usable on small screens (no menu button on doc pages) */
+@media (max-width: 920px) {
+  .site-nav.doc-nav {
+    display: flex;
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.2rem 1rem;
+    background: none;
+    border-bottom: none;
+    padding: 0;
+  }
+  .site-nav.doc-nav a { border-top: none; padding: 0.3rem 0; font-size: 0.85rem; }
+  .doc-page { padding-top: 7rem; }
+}
