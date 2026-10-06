@@ -74,7 +74,7 @@ stop_reason duration_elapsed</code></pre>
         <dl class="hero-stats reveal">
           <div><dt>Frames verified live</dt><dd>601 <span>of 601 checked</span></dd></div>
           <div><dt>Bootstrap skip count</dt><dd>133 <span>exact match</span></dd></div>
-          <div><dt>Unit tests</dt><dd>141 <span>passing</span></dd></div>
+          <div><dt>Unit tests</dt><dd>154 <span>passing</span></dd></div>
           <div><dt>Profitability claims</dt><dd>0 <span>by design</span></dd></div>
         </dl>
       </div>
@@ -165,6 +165,11 @@ stop_reason duration_elapsed</code></pre>
             <p class="mono-label">crate · astra-replay</p>
             <h3>Deterministic replay</h3>
             <p>Event core (book, trade, top-of-book), seeded strategies, and a CLI — same capture in, identical signal hashes out. Spec and repro procedure in <code>docs/</code>, soak operator in <code>ops/</code>.</p>
+          </article>
+          <article class="card repo reveal">
+            <p class="mono-label">crate · astra-exec</p>
+            <h3>Conservative fills</h3>
+            <p>Limit-maker simulation over trade prints: through-print fills, maker fees, gaps void — <code>exec-v1</code>, 9 unit tests, replay wiring open.</p>
           </article>
         </div>
         <p class="section-sub reveal" style="margin-top: 2.2rem">The contracts behind the crates — read these before citing a result.</p>

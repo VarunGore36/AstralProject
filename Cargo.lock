@@ -337,6 +337,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "astra-exec"
+version = "0.1.0"
+dependencies = [
+ "astra-types",
+ "thiserror",
+]
+
+[[package]]
 name = "astra-normalize"
 version = "0.1.0"
 dependencies = [

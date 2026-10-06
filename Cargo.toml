@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/astra-book",
+    "crates/astra-exec",
     "crates/astra-normalize",
     "crates/astra-record",
     "crates/astra-replay",
@@ -17,6 +18,7 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 astra-book = { path = "crates/astra-book" }
+astra-exec = { path = "crates/astra-exec" }
 astra-normalize = { path = "crates/astra-normalize" }
 astra-record = { path = "crates/astra-record" }
 astra-replay = { path = "crates/astra-replay" }

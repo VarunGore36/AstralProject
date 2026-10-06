@@ -106,7 +106,7 @@ A rigorous "this has no edge" is a successful result here.
 | Exchange checksum validation | SUPERSEDED — no connected venue publishes book checksums (verified against Binance spot docs; Bybit and Coinbase publish none either; only Kraken does, and it is not connected). Correctness is proven by independent reference comparison instead |
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
 | Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; latency methodology published; cross-machine procedure defined, proof open |
-| Cost and execution model | NOT IMPLEMENTED — conservative limit-maker spec written (`docs/execution-model.md`); code, calibration, and shadow mode open |
+| Cost and execution model | PARTIALLY IMPLEMENTED — `exec-v1` lib done (limit-maker fills over trade prints, required fee tier, 9 unit tests); replay wiring, calibration, and shadow mode open |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
 
@@ -150,6 +150,7 @@ flowchart TD
     NZ[astra-normalize<br/>capture to Parquet]
     RC[astra-record<br/>capture · check · reconstruct · verify]
     BK[astra-book<br/>OrderBook · Reconstructor]
+    EX[astra-exec<br/>conservative fills · fees]
     RT[astra-types<br/>Fixed · Timestamp · records]
     RP --> BK
     RP --> RC
@@ -159,6 +160,7 @@ flowchart TD
     RC --> BK
     RC --> RT
     BK --> RT
+    EX --> RT
 ```
 
 Arrows mean "depends on". Everything speaks the `astra-types` schema, so the
@@ -171,6 +173,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` + `trade` + `top_of_book`) |
 | `crates/astra-replay` | Deterministic replay: event core (`book_diff` + `trade` + `top_of_book`), `book-top` strategy, CLI |
+| `crates/astra-exec` | Conservative fills: limit-maker simulation over trade prints, required fee tier (`exec-v1`, replay wiring open) |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables, implemented for `book_diff`, `trade`, `top_of_book` |
 | `docs/replay-design.md` | The v1 contract for the deterministic replay engine, implemented in `astra-replay` |
 | `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
@@ -675,6 +678,7 @@ which equality broke).
 | Decisive full-depth comparison | complete REST bootstrap + same-connection streams: 150 post-snapshot checks at depth 10, 149 exact matches, 1 dust-quantity transient (same prices, 5th-decimal quantities — a sub-millisecond race between the venue's publishers) | VERIFIED |
 | Exchange checksum validation | none — verdict, not a gap: Binance publishes no book checksums on any spot stream (verified against the official stream docs); Bybit and Coinbase publish none either. Only Kraken does among reachable majors, and it is not connected. The correctness claim this row was meant to carry is proven instead by reference comparison (rows above) | SUPERSEDED |
 | Full-pipeline audit 2026-10-06 | 145 tests green, clippy clean, every production `unwrap` inspected; 3 bugs fixed (u64::MAX overflow, soak backoff, manifest trust), 13 open findings ranked in `docs/audit-2026-10-06.md` | REPORTED |
+| Exec-v1 unit acceptance | 9 unit tests: through-print fills both sides, near-miss expiry, wrong-side prints, gap void, empty stream, exact fees to the raw unit, explicit zero tier, rejected non-positive orders; replay wiring and live probes open | UNIT-TESTED, needs live proof |
 
 ### What the test suite does not cover
 
@@ -811,6 +815,12 @@ refuse captures whose `frames_written` disagrees with the chunks, but `check`
 now reports `manifest_mismatch` (unhealthy) and prints both lines. The test
 helper was writing venue-plus-synthetic counts; it now writes venue-only,
 matching production.
+
+**A test asserted the author's arithmetic, not the code's.** Two `exec-v1`
+expectations claimed 5 bps on 100.00 is 0.005 — it is 0.05, and the
+implementation knew it. The tests failed on the expectation, the code was
+right, and the fix was recomputing by hand. Unit tests verify
+self-consistency; the numbers in them still need a human who can multiply.
 
 ## Working rules
 
