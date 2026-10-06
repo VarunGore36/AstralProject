@@ -42,11 +42,19 @@ pub struct CheckReport {
     pub first_ts: Option<Timestamp>,
     pub last_ts: Option<Timestamp>,
     pub manifest_frames: Option<u64>,
+    /// (claimed, actual venue frames) when the manifest count disagrees with
+    /// the chunks on disk. Replay and normalize already refuse such captures;
+    /// the audit reports it instead of aborting, so the finding is visible.
+    pub manifest_mismatch: Option<(u64, u64)>,
+    pub stop_reason: Option<String>,
 }
 
 impl CheckReport {
     pub fn is_healthy(&self) -> bool {
-        self.seq_breaks.is_empty() && self.update_id_gaps.is_empty() && self.undecodable_gaps == 0
+        self.seq_breaks.is_empty()
+            && self.update_id_gaps.is_empty()
+            && self.undecodable_gaps == 0
+            && self.manifest_mismatch.is_none()
     }
 }
 
@@ -57,6 +65,7 @@ pub fn check(input: &Path) -> Result<CheckReport, RecordError> {
 
     let mut report = CheckReport {
         manifest_frames: Some(manifest.frames_written),
+        stop_reason: manifest.stop_reason.clone(),
         ..CheckReport::default()
     };
 
@@ -112,7 +121,13 @@ pub fn check(input: &Path) -> Result<CheckReport, RecordError> {
                 Some(span) => {
                     report.checked_frames += 1;
                     if let Some(previous) = previous_last {
-                        if span.first > previous + 1 {
+                        // checked_add: at u64::MAX no forward jump is
+                        // representable, so no gap can exist past saturation
+                        // (and no panic either).
+                        if previous
+                            .checked_add(1)
+                            .is_some_and(|expected| span.first > expected)
+                        {
                             report.update_id_gaps.push(UpdateIdGap {
                                 expected: previous + 1,
                                 found: span.first,
@@ -124,6 +139,10 @@ pub fn check(input: &Path) -> Result<CheckReport, RecordError> {
                 None => report.unchecked_frames += 1,
             }
         }
+    }
+
+    if report.venue_frames != manifest.frames_written {
+        report.manifest_mismatch = Some((manifest.frames_written, report.venue_frames));
     }
 
     Ok(report)
@@ -193,7 +212,12 @@ mod tests {
             created_at: Timestamp::from_unix_nanos(0),
             instrument: instrument(),
             channel: Channel::BookDiff,
-            frames_written: payloads.len() as u64,
+            // Venue frames only, matching production: gap markers ride along
+            // in seq order but are not venue data.
+            frames_written: payloads
+                .iter()
+                .filter(|(_, flags)| !flags.contains(CaptureFlags::SYNTHETIC))
+                .count() as u64,
             stop_reason: None,
         };
         crate::capture::write_manifest(output, &manifest).unwrap();
@@ -355,6 +379,60 @@ mod tests {
         assert_eq!(report.gap_details.len(), 1);
         assert_eq!(report.gap_details[0].reason, "venue_close");
         assert_eq!(report.seq_breaks, vec![]);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn saturated_update_ids_neither_panic_nor_emit_gaps() {
+        // Hostile boundary: no forward jump is representable past u64::MAX,
+        // so the audit must stay silent instead of panicking.
+        let output = temp_directory("saturated");
+        write_records(
+            &output,
+            vec![
+                (depth_frame(u64::MAX - 1, u64::MAX), CaptureFlags::NONE),
+                (depth_frame(0, 10), CaptureFlags::NONE),
+            ],
+            10,
+        );
+
+        let report = check(&output).unwrap();
+
+        assert_eq!(report.checked_frames, 2);
+        assert!(report.update_id_gaps.is_empty());
+        assert!(report.is_healthy());
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn a_doctored_manifest_is_reported_not_trusted() {
+        // Replay and normalize already refuse captures whose manifest count
+        // disagrees with the chunks; the audit must now say so too instead of
+        // passing them silently.
+        let output = temp_directory("doctored");
+        write_records(
+            &output,
+            vec![
+                (depth_frame(100, 110), CaptureFlags::NONE),
+                (depth_frame(111, 120), CaptureFlags::NONE),
+            ],
+            10,
+        );
+
+        let manifest_path = output.join(crate::capture::MANIFEST_FILE);
+        let body = std::fs::read_to_string(&manifest_path).unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+        manifest["frames_written"] = serde_json::json!(99);
+        manifest["stop_reason"] = serde_json::json!("duration_elapsed");
+        std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        let report = check(&output).unwrap();
+
+        assert_eq!(report.manifest_mismatch, Some((99, 2)));
+        assert_eq!(report.stop_reason.as_deref(), Some("duration_elapsed"));
+        assert!(!report.is_healthy());
 
         std::fs::remove_dir_all(&output).unwrap();
     }

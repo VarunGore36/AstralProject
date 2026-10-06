@@ -324,6 +324,13 @@ fn check_capture(args: CheckArgs) -> Result<(), RecordError> {
             .unwrap_or_else(|| "missing".to_owned())
     );
     println!(
+        "stop_reason {}",
+        report.stop_reason.as_deref().unwrap_or("missing")
+    );
+    if let Some((claimed, actual)) = report.manifest_mismatch {
+        println!("manifest_mismatch claimed {claimed} venue frames but the chunks hold {actual}");
+    }
+    println!(
         "span        {}",
         match (report.first_ts, report.last_ts) {
             (Some(first), Some(last)) => format!(

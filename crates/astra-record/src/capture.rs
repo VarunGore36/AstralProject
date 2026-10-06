@@ -23,7 +23,6 @@ pub const FRAMES_DIR: &str = "frames";
 pub const RECORDS_PER_CHUNK: usize = 2_000;
 pub const READ_POLL: Duration = Duration::from_millis(250);
 pub const RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_millis(250);
-pub const RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(30);
 
 pub const STOP_IN_PROGRESS: &str = "in_progress";
 pub const STOP_INTERRUPTED: &str = "interrupted";
@@ -145,7 +144,12 @@ impl SequenceTracker {
 
         let previous = self.previous_last.replace(span.last)?;
 
-        let expected = previous + 1;
+        let Some(expected) = previous.checked_add(1) else {
+            // Update IDs saturated at u64::MAX: no forward jump is
+            // representable past saturation, so no gap can be demonstrated
+            // (and, critically, none panics on hostile input).
+            return None;
+        };
         if span.first == expected {
             return None;
         }
@@ -330,7 +334,6 @@ pub fn run_capture(
         first_stream: None,
     };
     let mut reconnects_used = 0u32;
-    let mut backoff = RECONNECT_INITIAL_BACKOFF;
     let started = Instant::now();
 
     let stop_reason = loop {
@@ -400,8 +403,12 @@ pub fn run_capture(
         }
 
         reconnects_used += 1;
-        thread::sleep(backoff);
-        backoff = (backoff * 2).min(RECONNECT_MAX_BACKOFF);
+        // Fixed 250ms wait, deliberately not exponential: the recorder is
+        // lossless-first, so a reconnect should cost a quarter-second hole,
+        // not a growing one. An accumulating backoff would turn every late-
+        // soak blip into a 30-second gap for no benefit — a failed reconnect
+        // attempt already ends the capture outright (see below).
+        thread::sleep(RECONNECT_INITIAL_BACKOFF);
 
         if interrupted.load(Ordering::SeqCst) {
             break STOP_INTERRUPTED.to_owned();
@@ -940,6 +947,21 @@ mod tests {
         assert!(gaps[0].reason.contains("saw 200"));
 
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn saturated_update_ids_neither_panic_nor_emit_gaps() {
+        // Hostile boundary: update IDs at u64::MAX. No forward jump is
+        // representable past saturation, so the tracker must stay silent
+        // instead of panicking on `previous + 1`.
+        let mut tracker = SequenceTracker::default();
+        assert!(
+            tracker
+                .check(Some(UpdateSpan::new(u64::MAX - 1, u64::MAX)))
+                .is_none()
+        );
+        assert!(tracker.check(Some(UpdateSpan::new(0, 10))).is_none());
+        assert_eq!(tracker.gaps, 0);
     }
 
     #[test]

@@ -249,7 +249,12 @@ impl Reconstructor {
         }
 
         if let Some(previous) = self.last_update_id {
-            if span.first > previous + 1 {
+            // checked_add: at u64::MAX no forward jump is representable, so
+            // no gap can exist past saturation (and no panic either).
+            if previous
+                .checked_add(1)
+                .is_some_and(|expected| span.first > expected)
+            {
                 self.broken = true;
                 self.gaps += 1;
                 return Ok(ApplyDecision::Discontinuity);
@@ -588,5 +593,26 @@ mod tests {
 
         assert_eq!(decision, ApplyDecision::Discontinuity);
         assert_eq!(reconstructor.applied, 1);
+    }
+
+    #[test]
+    fn saturated_update_ids_neither_panic_nor_break_the_book() {
+        // Hostile boundary: no forward jump is representable past u64::MAX,
+        // so the reconstructor must stay silent instead of panicking.
+        let mut reconstructor = Reconstructor::new();
+        reconstructor
+            .apply_event(
+                span(u64::MAX - 10, u64::MAX),
+                &diff(vec![level("98.00000000", "4")], vec![]),
+            )
+            .unwrap();
+
+        let decision = reconstructor
+            .apply_event(span(0, 10), &diff(vec![level("97.00000000", "1")], vec![]))
+            .unwrap();
+
+        assert_eq!(decision, ApplyDecision::Applied);
+        assert!(reconstructor.is_reliable());
+        assert_eq!(reconstructor.gaps, 0);
     }
 }
