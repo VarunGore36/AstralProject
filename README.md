@@ -6,7 +6,7 @@
 
 **Live site: [astral-project-ruddy.vercel.app](https://astral-project-ruddy.vercel.app/)**
 
-![Astral Project website](website/screenshot.png)
+![Astral Project website, October 2026](website/screenshot.png)
 
 Astra makes it possible to determine whether a trading idea actually survives
 fees, slippage, latency, liquidity and realistic fills — and to reproduce that
