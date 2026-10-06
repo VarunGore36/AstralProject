@@ -121,8 +121,8 @@ flowchart LR
     classDef partial fill:#3a2f10,stroke:#fbbf24,color:#e6edf3
     classDef missing fill:#1a1f2b,stroke:#4b5563,color:#8b949e
     class C done
-    class A,B partial
-    class D,E,F missing
+    class A,B,D,E partial
+    class F missing
 ```
 
 | Stage | State |
@@ -168,9 +168,11 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-book` | Order-book state: level updates, top of book, invariants |
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` + `trade` + `top_of_book`) |
-| `crates/astra-replay` | Deterministic replay: event core, `book-top` strategy, CLI |
-| `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables (design only, not implemented) |
-| `docs/replay-design.md` | The v1 design for the deterministic replay engine (design only, not implemented) |
+| `crates/astra-replay` | Deterministic replay: event core (`book_diff` + `trade` + `top_of_book`), `book-top` strategy, CLI |
+| `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables, implemented for `book_diff`, `trade`, `top_of_book` |
+| `docs/replay-design.md` | The v1 contract for the deterministic replay engine, implemented in `astra-replay` |
+| `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
+| `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
 ## Data model
