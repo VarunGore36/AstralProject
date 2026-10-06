@@ -49,10 +49,12 @@ A rigorous "this has no edge" is a successful result here.
   where the venue offers checkable sequences, offline and in-band
   reconstruction, capture audit, adversarial tests, capture-path and
   book-update latency, Parquet normalization with proven byte-determinism,
-  and a replay engine whose live hashes are seed-independent across ten
-  repetitions.
+  and a replay engine covering book, trade, and top-of-book events whose
+  live hashes are seed-independent across ten repetitions.
 - **Working on** — the 72-hour soak: operator scripted (`ops/soak.sh`), four
-  streams, awaiting a supervised 72h window. A brief trial run was started and
+  streams, awaiting a supervised 72h window. Judging is mechanical
+  (`ops/soak.sh check`: per-stream verdicts, non-zero exit on any issue).
+  A brief trial run was started and
   stopped to leave a clean start; it proved the operator works, nothing more.
 - **Next (one thing)** — judge the soak: zero sequence breaks, fewer than one
   unexplained gap per instrument-day, every chunk hash-verified. Then close
@@ -103,7 +105,7 @@ A rigorous "this has no edge" is a successful result here.
 | Normalizer `trade` to Parquet (all three venues) | DONE — Binance live-verified; Bybit/Coinbase parser-tested, live-blocked by network |
 | Exchange checksum validation | SUPERSEDED — no connected venue publishes book checksums (verified against Binance spot docs; Bybit and Coinbase publish none either; only Kraken does, and it is not connected). Correctness is proven by independent reference comparison instead |
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
-| Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; cross-machine proof open |
+| Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; latency methodology published; cross-machine procedure defined, proof open |
 | Cost and execution model | NOT IMPLEMENTED |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
