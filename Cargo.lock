@@ -340,7 +340,11 @@ dependencies = [
 name = "astra-exec"
 version = "0.1.0"
 dependencies = [
+ "astra-record",
+ "astra-replay",
  "astra-types",
+ "clap",
+ "serde_json",
  "thiserror",
 ]
 

@@ -106,7 +106,7 @@ A rigorous "this has no edge" is a successful result here.
 | Exchange checksum validation | SUPERSEDED — no connected venue publishes book checksums (verified against Binance spot docs; Bybit and Coinbase publish none either; only Kraken does, and it is not connected). Correctness is proven by independent reference comparison instead |
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
 | Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; latency methodology published; cross-machine procedure defined, proof open |
-| Cost and execution model | PARTIALLY IMPLEMENTED — `exec-v1` lib done (limit-maker fills over trade prints, required fee tier, 9 unit tests); replay wiring, calibration, and shadow mode open |
+| Cost and execution model | PARTIALLY IMPLEMENTED — `exec-v1` lib + `astra-exec` probe CLI done (replay trade prints → fills with cited print, 9 unit + 2 integration tests); calibration and shadow mode open |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
 
@@ -173,7 +173,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` + `trade` + `top_of_book`) |
 | `crates/astra-replay` | Deterministic replay: event core (`book_diff` + `trade` + `top_of_book`), `book-top` strategy, CLI |
-| `crates/astra-exec` | Conservative fills: limit-maker simulation over trade prints, required fee tier (`exec-v1`, replay wiring open) |
+| `crates/astra-exec` | Conservative fills: limit-maker simulation over trade prints, required fee tier, plus a probe CLI (`exec-v1`) |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables, implemented for `book_diff`, `trade`, `top_of_book` |
 | `docs/replay-design.md` | The v1 contract for the deterministic replay engine, implemented in `astra-replay` |
 | `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
@@ -679,6 +679,7 @@ which equality broke).
 | Exchange checksum validation | none — verdict, not a gap: Binance publishes no book checksums on any spot stream (verified against the official stream docs); Bybit and Coinbase publish none either. Only Kraken does among reachable majors, and it is not connected. The correctness claim this row was meant to carry is proven instead by reference comparison (rows above) | SUPERSEDED |
 | Full-pipeline audit 2026-10-06 | 145 tests green, clippy clean, every production `unwrap` inspected; 3 bugs fixed (u64::MAX overflow, soak backoff, manifest trust), 13 open findings ranked in `docs/audit-2026-10-06.md` | REPORTED |
 | Exec-v1 unit acceptance | 9 unit tests: through-print fills both sides, near-miss expiry, wrong-side prints, gap void, empty stream, exact fees to the raw unit, explicit zero tier, rejected non-positive orders; replay wiring and live probes open | UNIT-TESTED, needs live proof |
+| Exec probe wiring | 2 integration tests over real-format captures on disk: fill cites its through-print (`print_seq`), gaps void, expiry; probe CLI demoed on empty and malformed inputs (clean errors, correct exits); live-venue probes open | WIRED, needs live proof |
 
 ### What the test suite does not cover
 

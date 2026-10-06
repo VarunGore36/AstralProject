@@ -8,6 +8,10 @@ rust-version.workspace = true
 
 [dependencies]
 astra-types = { workspace = true }
+astra-replay = { workspace = true }
+astra-record = { workspace = true }
+clap = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }

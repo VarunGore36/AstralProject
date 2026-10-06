@@ -9,6 +9,8 @@
 //! Wiring replay output into it (and any calibration against reality) is a
 //! later layer. See `docs/execution-model.md` for the full contract.
 
+use std::path::Path;
+
 use astra_types::Fixed;
 use thiserror::Error;
 
@@ -140,6 +142,81 @@ fn maker_fee(notional: Fixed, fee_bps: u32) -> Result<Fixed, ExecError> {
     let bump = i128::from((scaled % BPS_DENOMINATOR).abs() >= BPS_DENOMINATOR / 2);
     let raw = quotient.checked_add(bump).ok_or(ExecError::FeeOverflow)?;
     Ok(Fixed::from_raw(raw))
+}
+
+/// A collected probe run: the trade-print stream plus its gaps, and the
+/// order's fate against them.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ProbeReport {
+    pub trades: u64,
+    pub gaps: u64,
+    pub outcome: OrderOutcome,
+}
+
+#[derive(Debug, Error)]
+pub enum ProbeError {
+    #[error("replay error: {0}")]
+    Replay(#[from] astra_replay::ReplayError),
+    #[error("exec error: {0}")]
+    Exec(#[from] ExecError),
+}
+
+#[derive(Default)]
+struct ProbeCollector {
+    events: Vec<MarketEvent>,
+    trades: u64,
+    gaps: u64,
+}
+
+impl astra_replay::Strategy for ProbeCollector {
+    fn on_book_diff(
+        &mut self,
+        _event: &astra_replay::BookDiffEvent,
+        _ctx: &mut astra_replay::Context,
+    ) {
+    }
+    fn on_snapshot(
+        &mut self,
+        _event: &astra_replay::SnapshotEvent,
+        _ctx: &mut astra_replay::Context,
+    ) {
+    }
+    fn on_trade(&mut self, event: &astra_replay::TradeEvent, _ctx: &mut astra_replay::Context) {
+        self.events.push(MarketEvent::Print(Print {
+            seq: event.seq,
+            price: event.trade.price,
+        }));
+        self.trades += 1;
+    }
+    fn on_top_of_book(
+        &mut self,
+        _event: &astra_replay::TopBookEvent,
+        _ctx: &mut astra_replay::Context,
+    ) {
+    }
+    fn on_gap(&mut self, _marker: &astra_types::GapMarker, _ctx: &mut astra_replay::Context) {
+        self.events.push(MarketEvent::Gap);
+        self.gaps += 1;
+    }
+}
+
+/// Replay a capture's trade prints through one resting order.
+///
+/// Book-diff and top-of-book frames pass through the replay untouched by
+/// this model (they are somebody else's evidence); gaps void live orders.
+pub fn probe_capture(
+    input: &Path,
+    seed: u64,
+    order: &LimitOrder,
+    fee_bps: u32,
+) -> Result<ProbeReport, ProbeError> {
+    let mut collector = ProbeCollector::default();
+    astra_replay::replay(input, seed, &mut collector)?;
+    Ok(ProbeReport {
+        trades: collector.trades,
+        gaps: collector.gaps,
+        outcome: simulate(order, fee_bps, &collector.events)?,
+    })
 }
 
 #[cfg(test)]
