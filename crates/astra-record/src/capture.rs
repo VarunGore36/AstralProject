@@ -63,6 +63,10 @@ pub struct CaptureOutcome {
     pub latency: LatencySummary,
     pub book_latency: LatencySummary,
     pub book_updates: u64,
+    /// Live-book applies that failed (bad levels, broken book). Counted, not
+    /// hidden: a capture whose book silently stopped tracking must not look
+    /// identical to a healthy one.
+    pub book_errors: u64,
     pub fanouts: Vec<FanoutOutcome>,
     pub unknown_frames: u64,
     pub first_unknown_stream: Option<String>,
@@ -329,6 +333,7 @@ pub fn run_capture(
     let mut live_book = Reconstructor::new();
     let mut book_latency = LatencyTracker::default();
     let mut book_updates = 0u64;
+    let mut book_errors = 0u64;
     let mut unknown = UnknownFrames {
         count: 0,
         first_stream: None,
@@ -371,6 +376,7 @@ pub fn run_capture(
                     text.as_bytes(),
                     &mut book_latency,
                     &mut book_updates,
+                    &mut book_errors,
                 );
                 continue;
             }
@@ -385,6 +391,7 @@ pub fn run_capture(
                     &bytes,
                     &mut book_latency,
                     &mut book_updates,
+                    &mut book_errors,
                 );
                 continue;
             }
@@ -450,6 +457,7 @@ pub fn run_capture(
         latency: latency.summary().unwrap_or_default(),
         book_latency: book_latency.summary().unwrap_or_default(),
         book_updates,
+        book_errors,
         fanouts: outcomes,
         unknown_frames: unknown.count,
         first_unknown_stream: unknown.first_stream,
@@ -463,6 +471,7 @@ fn update_live_book_combined(
     payload: &[u8],
     latency: &mut LatencyTracker,
     updates: &mut u64,
+    errors: &mut u64,
 ) {
     if !combined {
         return update_live_book(
@@ -472,6 +481,7 @@ fn update_live_book_combined(
             payload,
             latency,
             updates,
+            errors,
         );
     }
 
@@ -481,7 +491,15 @@ fn update_live_book_combined(
     let Some(channel) = feed::channel_for_stream(&stream) else {
         return;
     };
-    update_live_book(book, &options.instrument, channel, &data, latency, updates);
+    update_live_book(
+        book,
+        &options.instrument,
+        channel,
+        &data,
+        latency,
+        updates,
+        errors,
+    );
 }
 
 fn handle_frame(
@@ -528,6 +546,7 @@ fn update_live_book(
     payload: &[u8],
     latency: &mut LatencyTracker,
     updates: &mut u64,
+    errors: &mut u64,
 ) {
     let venue = instrument.venue();
 
@@ -535,6 +554,8 @@ fn update_live_book(
         let started = Instant::now();
         if book.load_snapshot(&snapshot).is_ok() {
             *updates += 1;
+        } else {
+            *errors += 1;
         }
         latency.record(started.elapsed());
         return;
@@ -550,6 +571,8 @@ fn update_live_book(
     let started = Instant::now();
     if book.apply_event(span, &diff).is_ok() {
         *updates += 1;
+    } else {
+        *errors += 1;
     }
     latency.record(started.elapsed());
 }
@@ -1075,6 +1098,21 @@ mod tests {
         assert_eq!(outcome.book_updates, 3);
         assert_eq!(outcome.book_latency.samples, 3);
         assert!(outcome.book_latency.max_ns >= outcome.book_latency.p50_ns);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn live_book_failures_are_counted_not_hidden() {
+        let bad_quantity = r#"{"e":"depthUpdate","s":"BTCUSDT","U":111,"u":120,"b":[["100.00000000","-1"]],"a":[]}"#.to_owned();
+        let url = serve_connections(vec![vec![depth_frame(100, 110), bad_quantity]]);
+        let output = temp_directory("live-book-errors");
+        let outcome = run_capture(options(&output, url), Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(outcome.frames_written, 2);
+        assert_eq!(outcome.sequence_gaps, 0);
+        assert_eq!(outcome.book_updates, 1);
+        assert_eq!(outcome.book_errors, 1);
 
         std::fs::remove_dir_all(&output).unwrap();
     }

@@ -93,7 +93,7 @@ A rigorous "this has no edge" is a successful result here.
 | Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
 | Adversarial parser tests + real 8-frame venue fixture | DONE |
 | Capture-path latency (socket-read to stored, per frame) | DONE — p50 ~0.1ms, p99 ~1ms, max ~2ms over two live 30s runs |
-| Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured |
+| Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured; failed applies counted as `errors`, unit-tested |
 | Combined-stream fan-out capture (`--with`) | DONE — one connection, per-channel sibling dirs with own manifests, independent tracking, unknown streams counted |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE — full content inlined (`website/docs/*.html` built from `docs/` via `website/build.py`, no external doc links); fluoro neon theme |
 | Normalized event schema v1 (see `docs/`) | DONE — `book_diff`, `trade`, `top_of_book` implemented in `astra-normalize`; `funding`/`liquidation` reserved |
@@ -611,7 +611,7 @@ Two halves, measured separately on live feeds and printed by every capture:
 
 ```text
 latency_us  p50 108.0 p99 761.0 max 1400.0 (300 frames, read to stored)
-book_us     p50 15.0 p99 68.0 max … (272 updates, read to book-updated)
+book_us     p50 15.0 p99 68.0 max … (updates 272, errors 0, read to book-updated)
 ```
 
 | Half | What is timed | Binance spot | Bybit spot | Target |
@@ -680,6 +680,7 @@ which equality broke).
 | Full-pipeline audit 2026-10-06 | 145 tests green, clippy clean, every production `unwrap` inspected; 3 bugs fixed (u64::MAX overflow, soak backoff, manifest trust), 13 open findings ranked in `docs/audit-2026-10-06.md` | REPORTED |
 | Exec-v1 unit acceptance | 9 unit tests: through-print fills both sides, near-miss expiry, wrong-side prints, gap void, empty stream, exact fees to the raw unit, explicit zero tier, rejected non-positive orders; replay wiring and live probes open | UNIT-TESTED, needs live proof |
 | Exec probe wiring | 2 integration tests over real-format captures on disk: fill cites its through-print (`print_seq`), gaps void, expiry; probe CLI demoed on empty and malformed inputs (clean errors, correct exits); live-venue probes open | WIRED, needs live proof |
+| Live-book error counting | negative-quantity diff counted as `errors` while `updates` counts successes; capture output prints both | UNIT-TESTED |
 
 ### What the test suite does not cover
 
