@@ -174,6 +174,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables, implemented for `book_diff`, `trade`, `top_of_book` |
 | `docs/replay-design.md` | The v1 contract for the deterministic replay engine, implemented in `astra-replay` |
 | `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
+| `docs/soak-runbook.md` | The 72-hour soak procedure: VPS sizing, shakedown, supervision, judging |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
@@ -560,7 +561,9 @@ flowchart TD
   `--url` override, and the README says so instead of pretending otherwise.
 - The 72-hour soak has not been run. Short captures (30–60 s) are clean, but
   that is not evidence about days of sustained operation.
-- The soak needs a supervised 72h window on one machine. If the machine dies
+- The soak runs on a cheap VPS, not a laptop: sleep kills connections, and a
+  paused run is not a soak. Sizing, shakedown, supervision, and judging are in
+  `docs/soak-runbook.md`. If the machine dies
   mid-soak, the partial capture plus its `check` output is still evidence, and
   the soak restarts from zero — a restarted soak is a new soak, not a
   continuation.
