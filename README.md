@@ -106,7 +106,7 @@ A rigorous "this has no edge" is a successful result here.
 | Exchange checksum validation | SUPERSEDED — no connected venue publishes book checksums (verified against Binance spot docs; Bybit and Coinbase publish none either; only Kraken does, and it is not connected). Correctness is proven by independent reference comparison instead |
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
 | Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; latency methodology published; cross-machine procedure defined, proof open |
-| Cost and execution model | NOT IMPLEMENTED |
+| Cost and execution model | NOT IMPLEMENTED — conservative limit-maker spec written (`docs/execution-model.md`); code, calibration, and shadow mode open |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
 
@@ -175,6 +175,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `docs/replay-design.md` | The v1 contract for the deterministic replay engine, implemented in `astra-replay` |
 | `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
 | `docs/soak-runbook.md` | The 72-hour soak procedure: VPS sizing, shakedown, supervision, judging |
+| `docs/execution-model.md` | The v1 fill/cost spec: conservative limit-maker fills, required fee tier (code open) |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
