@@ -165,6 +165,24 @@ stop_reason duration_elapsed</code></pre>
             <p>Event core (book, trade, top-of-book), seeded strategies, and a CLI — same capture in, identical signal hashes out. Spec and repro procedure in <code>docs/</code>, soak operator in <code>ops/</code>.</p>
           </article>
         </div>
+        <p class="section-sub reveal" style="margin-top: 2.2rem">The contracts behind the crates — read these before citing a result.</p>
+        <div class="grid grid-3">
+          <article class="card reveal">
+            <p class="mono-label">doc · schema</p>
+            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/normalized-schema.md" target="_blank" rel="noopener">Normalized event schema v1 →</a></h3>
+            <p>The Parquet format the normalizer targets: <code>book_diff</code>, <code>trade</code>, <code>top_of_book</code> tables, partitioning, validation rules.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label">doc · replay</p>
+            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/replay-design.md" target="_blank" rel="noopener">Replay engine design v1 →</a></h3>
+            <p>The contract the engine satisfies: event model, ordering, virtual time, gap semantics, determinism rules.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label">doc · repro</p>
+            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/cross-machine-repro.md" target="_blank" rel="noopener">Cross-machine procedure →</a></h3>
+            <p>How a second machine reproduces a result: three hash equalities, exact commands, known limits.</p>
+          </article>
+        </div>
         <div class="oss-cta reveal">
           <a class="btn btn-primary" href="https://github.com/VarunGore36/AstralProject" target="_blank" rel="noopener">Clone the repository</a>
           <code class="clone-cmd">git clone https://github.com/VarunGore36/AstralProject.git</code>

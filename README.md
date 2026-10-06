@@ -373,7 +373,9 @@ signal_hash f66ae25f...
 Gap markers arrive as gap events, unparseable frames and other channels are
 counted as skipped, and a torn manifest fails loudly instead of replaying
 a capture that is not whole. `trade` bundles expand per print (`print_index`);
-`book_ticker` frames arrive via `on_top_of_book`.
+`book_ticker` frames arrive via `on_top_of_book`. The full contract lives in
+`docs/replay-design.md`; running it on a second machine is described in
+`docs/cross-machine-repro.md`.
 
 ## Capture layout
 
