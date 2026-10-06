@@ -176,6 +176,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
 | `docs/soak-runbook.md` | The 72-hour soak procedure: VPS sizing, shakedown, supervision, judging |
 | `docs/execution-model.md` | The v1 fill/cost spec: conservative limit-maker fills, required fee tier (code open) |
+| `docs/audit-2026-10-06.md` | Full-pipeline audit: method, 3 fixes, 13 ranked open findings, claim spot-check |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
@@ -673,6 +674,7 @@ which equality broke).
 | Same-connection fan-out capture | one connection, 246 diffs + 247 snapshots routed to sibling dirs with own manifests; zero gaps, unknown streams counted | VERIFIED |
 | Decisive full-depth comparison | complete REST bootstrap + same-connection streams: 150 post-snapshot checks at depth 10, 149 exact matches, 1 dust-quantity transient (same prices, 5th-decimal quantities — a sub-millisecond race between the venue's publishers) | VERIFIED |
 | Exchange checksum validation | none — verdict, not a gap: Binance publishes no book checksums on any spot stream (verified against the official stream docs); Bybit and Coinbase publish none either. Only Kraken does among reachable majors, and it is not connected. The correctness claim this row was meant to carry is proven instead by reference comparison (rows above) | SUPERSEDED |
+| Full-pipeline audit 2026-10-06 | 145 tests green, clippy clean, every production `unwrap` inspected; 3 bugs fixed (u64::MAX overflow, soak backoff, manifest trust), 13 open findings ranked in `docs/audit-2026-10-06.md` | REPORTED |
 
 ### What the test suite does not cover
 
@@ -784,6 +786,31 @@ The error came from generalising a few clean samples instead of reading the
 full gradient — the same gradient chart that exposed it. For a project whose
 brand is honest reporting, this was the worst kind of bug: not in the code,
 but in the claims about the code.
+
+**Continuity arithmetic overflowed at the type boundary.** Three sites
+computed `previous + 1` on venue-supplied `u64` update IDs: the live capture
+tracker, the offline audit, and the book reconstructor. In debug builds that
+panics at `u64::MAX` — proven with a standalone reproduction of the exact
+expression (exit 101). Real venues will never send such IDs, but a hostile
+local feed could crash all three, which is precisely the class this project
+claims to reject. All three now use `checked_add` (at saturation no forward
+jump is representable, so none is reported), with a regression test at each
+site. Full writeup in `docs/audit-2026-10-06.md`.
+
+**The soak backoff manufactured its own holes.** Reconnect waits doubled
+without reset, saturating at 30s — over 72h every late blip would cost up to
+thirty seconds for no benefit, since a failed reconnect attempt already ends
+the capture outright. Replaced with a fixed 250ms wait. Caught by clippy
+mid-fix, of all things: the reset that was tried first left the doubling
+assignment dead, and the lint said so.
+
+**The audit trusted the manifest it was auditing.** Replay and normalize
+refuse captures whose `frames_written` disagrees with the chunks, but `check`
+— the tool the soak is judged with — never compared them, and never printed
+`stop_reason`. A doctored or half-written capture audited `healthy`. `check`
+now reports `manifest_mismatch` (unhealthy) and prints both lines. The test
+helper was writing venue-plus-synthetic counts; it now writes venue-only,
+matching production.
 
 ## Working rules
 

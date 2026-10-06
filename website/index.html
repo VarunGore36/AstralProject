@@ -35,6 +35,7 @@
         <a href="#architecture">Architecture</a>
         <a href="#opensource">Open source</a>
         <a href="#research">Research</a>
+        <a href="#audit">Audit</a>
         <a href="#principles">Principles</a>
         <a href="#roadmap">Roadmap</a>
       </nav>
@@ -188,6 +189,11 @@ stop_reason duration_elapsed</code></pre>
             <p>When a resting limit order counts as filled: trade-print-through only, maker fees, gaps void. Spec written, code open.</p>
           </article>
           <article class="card reveal">
+            <p class="mono-label">doc · audit</p>
+            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/audit-2026-10-06.md" target="_blank" rel="noopener">Pipeline audit 2026-10-06 →</a></h3>
+            <p>145 tests, zero lints, 3 bugs fixed same-day, 13 open findings ranked. The throttle report.</p>
+          </article>
+          <article class="card reveal">
             <p class="mono-label">doc · soak</p>
             <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/soak-runbook.md" target="_blank" rel="noopener">72-hour soak runbook →</a></h3>
             <p>Why the soak runs on a cheap VPS instead of a laptop: sizing, shakedown, supervision, judging.</p>
@@ -265,6 +271,70 @@ stop_reason duration_elapsed</code></pre>
             <p class="mono-label status-next">Planned</p>
             <h3>Cost-adjusted funding and basis carry</h3>
             <p>Can a simple delta-neutral funding strategy survive realistic fees, slippage, basis movement and execution constraints? Asked honestly, answered with data.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="audit" aria-labelledby="audit-title">
+      <div class="wrap">
+        <p class="eyebrow reveal">Audit · 2026-10-06</p>
+        <h2 id="audit-title" class="reveal">Run to the throttle.</h2>
+        <p class="section-sub reveal">Full suite, lints, panic-surface scan, and a line-by-line review of every production path in the measurement pipeline. Three bugs fixed same-day. Thirteen findings ranked and left open. Full detail in <a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/audit-2026-10-06.md" target="_blank" rel="noopener">the audit doc</a>.</p>
+        <div class="grid grid-3">
+          <article class="card reveal"><h3>145 tests, all green</h3><p>17 book · 16 normalize · 86 record · 10 replay · 15 types, plus one overflow guard each at three sites. Zero ignored, zero failed.</p></article>
+          <article class="card reveal"><h3>Zero clippy warnings</h3><p><code>cargo clippy --workspace --all-targets -- -D warnings</code> passes; <code>cargo fmt --check</code> clean. The lint caught a dead assignment in the auditor's own fix mid-audit.</p></article>
+          <article class="card reveal"><h3>Panic surface swept</h3><p>Every production <code>unwrap</code> inspected. All live in test modules except one guard-proven framing read — flagged as hygiene, not a bug.</p></article>
+        </div>
+        <p class="eyebrow reveal" style="margin-top: 2.2rem">Fixed same-day</p>
+        <div class="grid grid-3">
+          <article class="card reveal">
+            <p class="mono-label status-done">Fixed · overflow</p>
+            <h3>Continuity arithmetic panicked at u64::MAX</h3>
+            <p>Live tracker, offline audit, and reconstructor computed <code>previous + 1</code> on venue-supplied IDs — exit 101 in debug on a hostile payload. Now <code>checked_add</code> with regression tests at all three sites.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Fixed · soak behavior</p>
+            <h3>Reconnect backoff manufactured 30s holes</h3>
+            <p>Waits doubled without reset across a long soak, while a failed attempt already ends the capture. Now a fixed 250ms wait; dead constant removed.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Fixed · audit gap</p>
+            <h3><code>check</code> trusted the manifest it audited</h3>
+            <p>Replay and normalize enforced the frame count; the soak's judge did not, and never printed <code>stop_reason</code>. Now reports <code>manifest_mismatch</code> as unhealthy.</p>
+          </article>
+        </div>
+        <p class="eyebrow reveal" style="margin-top: 2.2rem">Open findings, ranked</p>
+        <div class="grid grid-2">
+          <article class="card reveal">
+            <p class="mono-label status-next">Open · 1</p>
+            <h3>Soak-scale memory</h3>
+            <p>Only <code>check</code> streams chunk-by-chunk; replay and normalize load multi-million-frame soaks whole into RAM. Size the judging box — or stream them — before the soak.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-next">Open · 2</p>
+            <h3>Reopen semantics are half-true</h3>
+            <p>Chunks continue their numbering in an existing dir, but manifest and sequence restart at zero — re-capturing into one dir collides. Refuse or resume; all live paths use fresh dirs today.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-next">Open · 3</p>
+            <h3>No schema-version gate</h3>
+            <p>Captures declare <code>schema_version</code>; no tool reads it back. A format change would be silently misread instead of refused.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-next">Open · 4</p>
+            <h3><code>reconstruct</code> is the least strict reader</h3>
+            <p>Never opens the manifest, never checks sequence continuity, under-counts connection gaps. Should share <code>check</code>'s prelude before rebuilding books.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-next">Open · 5</p>
+            <h3>Fail-loud inconsistency</h3>
+            <p>The same corruption aborts normalize/replay, is counted by <code>check</code>, and is skipped-or-counted by <code>reconstruct</code>/<code>compare</code>. Needs one documented policy table.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-next">Open · 6–13</p>
+            <h3><a href="https://github.com/VarunGore36/AstralProject/blob/main/docs/audit-2026-10-06.md" target="_blank" rel="noopener">Eight more in the doc →</a></h3>
+            <p>Tail holes, invisible live-book errors, zero CLI coverage, Binance-only snapshots, normalize idempotency, null-row divergence, unvalidated sides — plus the items verified benign, so nobody re-audits them.</p>
           </article>
         </div>
       </div>
