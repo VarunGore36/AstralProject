@@ -27,6 +27,8 @@ PAGES = [
      "When a resting order counts as filled."),
     ("audit-2026-10-06.md", "Audit", "Pipeline audit 2026-10-06",
      "145 tests, 3 fixes, 13 ranked findings."),
+    ("failure-policy.md", "Policy", "Failure policy",
+     "What each subcommand does with bad data."),
 ]
 
 TEMPLATE = """<!DOCTYPE html>

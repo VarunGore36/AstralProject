@@ -184,6 +184,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `docs/soak-runbook.md` | The 72-hour soak procedure: VPS sizing, shakedown, supervision, judging |
 | `docs/execution-model.md` | The v1 fill/cost spec: conservative limit-maker fills, required fee tier (code open) |
 | `docs/audit-2026-10-06.md` | Full-pipeline audit: method, 3 fixes, 13 ranked open findings, claim spot-check |
+| `docs/failure-policy.md` | What each subcommand does with the same corruption (read off the code; unification open) |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
@@ -689,6 +690,7 @@ which equality broke).
 | CLI output contracts pinned | `capture` (`frames` line parsed by `soak.sh status`), `replay` (`signal_hash`), and `exec` reports all render through golden-tested lib functions; byte-identical output verified live after each move | PINNED |
 | Reconstruct gated like every reader | `reconstruct` verifies schema version and manifest frame count before rebuilding, failing loud on foreign or half-written captures | GATED |
 | Capture schema-version gate | `check`, `normalize`, and `replay` refuse manifests declaring a newer schema version instead of misreading them; one gate test per reader | GATED |
+| Failure policy table | every corruption × subcommand behavior read off the code into `docs/failure-policy.md`, including the two divergences most worth removing (`compare` manifest-blindness, `reconstruct` synthetic-skip) | DOCUMENTED |
 
 ### What the test suite does not cover
 

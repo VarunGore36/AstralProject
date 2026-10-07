@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Failure policy — Astral Project</title>
+  <meta name="description" content="What each subcommand does with bad data." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+        <a href="failure-policy.html">Policy</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/failure-policy.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="failure-policy-what-each-subcommand-does-with-bad-data">Failure policy: what each subcommand does with bad data</h1>
+<p>Status: <strong>documents current behavior; it does not unify it.</strong> The audit
+found that the "same" corruption produces different outcomes per
+subcommand. Each outcome below was read off the code, not asserted from
+intent. Unifying them is open work; this table is the baseline it will be
+judged against.</p>
+<p>Legend: <strong>abort</strong> = command fails with an error · <strong>finding</strong> = reported,
+verdict unhealthy · <strong>skip</strong> = counted past · <strong>null-row</strong> = kept as a
+null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller unchanged.</p>
+<table>
+<thead>
+<tr>
+<th>Corruption</th>
+<th><code>capture</code> (write)</th>
+<th><code>check</code></th>
+<th><code>reconstruct</code></th>
+<th><code>verify</code>/<code>compare</code></th>
+<th><code>normalize</code></th>
+<th><code>replay</code> / <code>exec probe</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chunk fails SHA-256</td>
+<td>n/a (writes it)</td>
+<td>abort (<code>Integrity</code>)</td>
+<td>abort</td>
+<td>abort</td>
+<td>abort</td>
+<td>abort</td>
+</tr>
+<tr>
+<td>Manifest count disagrees with chunks</td>
+<td>n/a (writes it)</td>
+<td>finding (<code>manifest_mismatch</code>)</td>
+<td>abort (<code>ManifestMismatch</code>)</td>
+<td><strong>ignored</strong> (never opens the manifest)</td>
+<td>abort</td>
+<td>abort</td>
+</tr>
+<tr>
+<td>Manifest declares a newer schema</td>
+<td>n/a (writes current)</td>
+<td>abort (<code>SchemaVersion</code>)</td>
+<td>abort</td>
+<td><strong>ignored</strong></td>
+<td>abort</td>
+<td>abort</td>
+</tr>
+<tr>
+<td>Undecodable gap-marker payload</td>
+<td>n/a (writes valid ones)</td>
+<td>finding (<code>undecodable_gaps</code>)</td>
+<td><strong>skipped silently</strong> (synthetic records bypass parsing)</td>
+<td><strong>skipped silently</strong></td>
+<td>abort</td>
+<td>abort (<code>Malformed</code>)</td>
+</tr>
+<tr>
+<td>Unparseable venue frame</td>
+<td>stored verbatim, unchecked</td>
+<td>skip (<code>unchecked</code>, stays healthy alone)</td>
+<td>skip (<code>frames_without_a_book</code>)</td>
+<td>skip, uncounted</td>
+<td>null-row</td>
+<td>skip (<code>skipped_unparseable</code>)</td>
+</tr>
+<tr>
+<td>Update-ID discontinuity</td>
+<td>gap record, stream continues</td>
+<td>finding</td>
+<td>book breaks until a new snapshot</td>
+<td>rejected events counted</td>
+<td>rows as-is (continuity is the capture layer's job)</td>
+<td>gap event passthrough</td>
+</tr>
+<tr>
+<td>Sequence break (<code>seq</code> jumps)</td>
+<td>impossible (writer assigns <code>seq</code>)</td>
+<td>finding</td>
+<td><strong>not checked</strong></td>
+<td><strong>not checked</strong></td>
+<td>duplicate <code>seq</code> rejected</td>
+<td><strong>not checked</strong> (trusts order)</td>
+</tr>
+<tr>
+<td>Duplicate update spans</td>
+<td>gap record (strict equality)</td>
+<td><strong>not detected</strong> (forward jumps only)</td>
+<td>applied twice, harmlessly (set semantics)</td>
+<td>applied twice</td>
+<td>accepted if <code>seq</code> differs</td>
+<td>emitted twice</td>
+</tr>
+<tr>
+<td>Half-written capture (<code>in_progress</code>, stale counts)</td>
+<td>n/a</td>
+<td>finding via count mismatch</td>
+<td>abort via count mismatch</td>
+<td>proceeds on whatever frames exist</td>
+<td>abort via count mismatch</td>
+<td>abort via count mismatch</td>
+</tr>
+<tr>
+<td>Final disconnect, no trailing gap</td>
+<td>stop reason only (correct: nothing follows)</td>
+<td>nothing to find (read the manifest)</td>
+<td>nothing to reconstruct past</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+<h2 id="rules-for-changing-this-table">Rules for changing this table</h2>
+<ol>
+<li>Unify toward fail-loud for corruption (abort or unhealthy), never toward
+   silent skipping. The <code>compare</code> manifest-blindness and the
+   <code>reconstruct</code> synthetic-skip are the two divergences that most deserve
+   removal.</li>
+<li>The null-row vs skip divergence (normalize keeps, replay skips) stands
+   until normalized-replay exists to need one answer.</li>
+<li>Any behavior change here updates this table, the subcommand's golden
+   tests, and the README verification record together.</li>
+</ol>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/failure-policy.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
