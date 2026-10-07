@@ -160,6 +160,93 @@ fn read_manifest(input: &Path) -> Result<CaptureManifest, RecordError> {
     Ok(serde_json::from_str(&body)?)
 }
 
+/// Render the audit report exactly as the CLI prints it.
+///
+/// The format is load-bearing: `ops/soak.sh check` parses the `verdict`
+/// line to judge the soak. Any change here must update the golden tests
+/// below and the soak script together — never one without the others.
+pub fn format_report(input: &Path, report: &CheckReport) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "input       {}", input.display());
+    let _ = writeln!(out, "chunks      {}", report.chunks);
+    let _ = writeln!(out, "records     {}", report.records);
+    let _ = writeln!(out, "venue       {}", report.venue_frames);
+    let _ = writeln!(out, "synthetic   {}", report.synthetic_records);
+    let _ = writeln!(out, "checked     {}", report.checked_frames);
+    let _ = writeln!(out, "unchecked   {}", report.unchecked_frames);
+    let _ = writeln!(out, "conn_gaps   {}", report.connection_gaps);
+    let _ = writeln!(out, "seq_gaps    {}", report.update_id_gaps.len());
+    let _ = writeln!(out, "seq_breaks  {}", report.seq_breaks.len());
+    let _ = writeln!(
+        out,
+        "manifest    {}",
+        report
+            .manifest_frames
+            .map(|frames| frames.to_string())
+            .unwrap_or_else(|| "missing".to_owned())
+    );
+    let _ = writeln!(
+        out,
+        "stop_reason {}",
+        report.stop_reason.as_deref().unwrap_or("missing")
+    );
+    if let Some((claimed, actual)) = report.manifest_mismatch {
+        let _ = writeln!(
+            out,
+            "manifest_mismatch claimed {claimed} venue frames but the chunks hold {actual}"
+        );
+    }
+    let _ = writeln!(
+        out,
+        "span        {}",
+        match (report.first_ts, report.last_ts) {
+            (Some(first), Some(last)) => format!(
+                "{}s first to last",
+                last.unix_nanos().saturating_sub(first.unix_nanos()) as f64 / 1_000_000_000.0
+            ),
+            _ => "empty".to_owned(),
+        }
+    );
+
+    for gap in &report.gap_details {
+        let _ = writeln!(
+            out,
+            "gap         seq {} attempts {} {}",
+            gap.seq, gap.attempts, gap.reason
+        );
+    }
+    for id_gap in &report.update_id_gaps {
+        if id_gap.expected != 0 {
+            let _ = writeln!(
+                out,
+                "update_gap  expected {} saw {}",
+                id_gap.expected, id_gap.found
+            );
+        }
+    }
+    for seq_break in &report.seq_breaks {
+        let _ = writeln!(
+            out,
+            "seq_break   expected {} found {}",
+            seq_break.expected, seq_break.found
+        );
+    }
+
+    let _ = writeln!(
+        out,
+        "verdict     {}",
+        if report.is_healthy() {
+            "healthy"
+        } else {
+            "issues found, see above"
+        }
+    );
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,6 +524,70 @@ mod tests {
         std::fs::remove_dir_all(&output).unwrap();
     }
 
+    #[test]
+    fn the_report_format_is_pinned_for_the_soak_judge() {
+        // ops/soak.sh check parses the verdict line. If this format moves,
+        // the judge breaks silently — so the format is asserted line by line.
+        let healthy = CheckReport {
+            chunks: 2,
+            records: 601,
+            venue_frames: 601,
+            checked_frames: 601,
+            manifest_frames: Some(601),
+            stop_reason: Some("duration_elapsed".to_owned()),
+            first_ts: Some(Timestamp::from_unix_nanos(1)),
+            last_ts: Some(Timestamp::from_unix_nanos(2_000_000_000)),
+            ..CheckReport::default()
+        };
+        let text = format_report(std::path::Path::new("./capture"), &healthy);
+        for line in [
+            "input       ./capture",
+            "chunks      2",
+            "records     601",
+            "venue       601",
+            "synthetic   0",
+            "checked     601",
+            "unchecked   0",
+            "conn_gaps   0",
+            "seq_gaps    0",
+            "seq_breaks  0",
+            "manifest    601",
+            "stop_reason duration_elapsed",
+            "verdict     healthy",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
+        assert!(
+            !text.contains("manifest_mismatch"),
+            "clean report leaked: {text}"
+        );
+
+        let broken = CheckReport {
+            venue_frames: 2,
+            checked_frames: 2,
+            manifest_frames: Some(99),
+            manifest_mismatch: Some((99, 2)),
+            stop_reason: Some("duration_elapsed".to_owned()),
+            update_id_gaps: vec![UpdateIdGap {
+                expected: 121,
+                found: 200,
+            }],
+            seq_breaks: vec![SeqBreak {
+                expected: 2,
+                found: 5,
+            }],
+            ..CheckReport::default()
+        };
+        let text = format_report(std::path::Path::new("./capture"), &broken);
+        for line in [
+            "manifest_mismatch claimed 99 venue frames but the chunks hold 2",
+            "update_gap  expected 121 saw 200",
+            "seq_break   expected 2 found 5",
+            "verdict     issues found, see above",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
+    }
     #[test]
     fn unparseable_frames_count_as_unchecked() {
         let output = temp_directory("unchecked");

@@ -685,6 +685,7 @@ which equality broke).
 | Exec-v1 unit acceptance | 9 unit tests: through-print fills both sides, near-miss expiry, wrong-side prints, gap void, empty stream, exact fees to the raw unit, explicit zero tier, rejected non-positive orders; replay wiring and live probes open | UNIT-TESTED, needs live proof |
 | Exec probe wiring | 2 integration tests over real-format captures on disk: fill cites its through-print (`print_seq`), gaps void, expiry; probe CLI demoed on empty and malformed inputs (clean errors, correct exits); live-venue probes open | WIRED, needs live proof |
 | Live-book error counting | negative-quantity diff counted as `errors` while `updates` counts successes; capture output prints both | UNIT-TESTED |
+| Check output golden format | `check` rendering moved into the lib with line-by-line golden tests, so the `verdict` line `soak.sh` parses cannot drift silently; CLI output verified byte-identical after the move | PINNED |
 
 ### What the test suite does not cover
 
