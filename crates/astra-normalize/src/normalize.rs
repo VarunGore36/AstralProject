@@ -37,6 +37,8 @@ pub enum NormalizeError {
     Parquet(#[from] parquet::errors::ParquetError),
     #[error("validation rejected the batch: {0}")]
     Validation(String),
+    #[error("unsupported capture schema version {found}, this build reads {expected}")]
+    SchemaVersion { found: u32, expected: u32 },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -998,7 +1000,15 @@ impl_optional_append!(UInt32Builder, u32, append_value);
 
 fn read_manifest(input: &Path) -> Result<CaptureManifest, NormalizeError> {
     let body = std::fs::read_to_string(input.join(MANIFEST_FILE))?;
-    Ok(serde_json::from_str(&body)?)
+    let manifest: CaptureManifest = serde_json::from_str(&body)?;
+    // A format change must fail loudly here, not misread silently.
+    if manifest.schema_version != astra_types::SCHEMA_VERSION {
+        return Err(NormalizeError::SchemaVersion {
+            found: manifest.schema_version,
+            expected: astra_types::SCHEMA_VERSION,
+        });
+    }
+    Ok(manifest)
 }
 
 #[cfg(test)]
@@ -1447,6 +1457,35 @@ mod tests {
         std::fs::remove_dir_all(&input).unwrap();
         std::fs::remove_dir_all(&first).unwrap();
         std::fs::remove_dir_all(&second).unwrap();
+    }
+
+    #[test]
+    fn a_future_schema_version_is_refused_not_misread() {
+        let input = temp_directory("schema-version");
+        let output = temp_directory("schema-version-out");
+        write_capture(
+            &input,
+            vec![record(
+                0,
+                Channel::BookDiff,
+                1_700_000_000_000_000_000,
+                DEPTH_FRAME.as_bytes().to_vec(),
+            )],
+        );
+
+        let manifest_path = input.join(MANIFEST_FILE);
+        let body = std::fs::read_to_string(&manifest_path).unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+        manifest["schema_version"] = serde_json::json!(astra_types::SCHEMA_VERSION + 1);
+        std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        assert!(matches!(
+            normalize(&input, &output),
+            Err(NormalizeError::SchemaVersion { .. })
+        ));
+
+        std::fs::remove_dir_all(&input).unwrap();
+        let _ = std::fs::remove_dir_all(&output);
     }
 
     #[test]

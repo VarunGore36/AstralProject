@@ -23,6 +23,8 @@ pub enum RecordError {
     TransportUnsupported,
     #[error("signal handler error: {0}")]
     Signal(String),
+    #[error("unsupported capture schema version {found}, this build reads {expected}")]
+    SchemaVersion { found: u32, expected: u32 },
 }
 
 impl From<tungstenite::Error> for RecordError {

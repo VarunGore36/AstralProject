@@ -72,7 +72,7 @@ stop_reason duration_elapsed</code></pre>
         <dl class="hero-stats reveal">
           <div><dt>Frames verified live</dt><dd>601 <span>of 601 checked</span></dd></div>
           <div><dt>Bootstrap skip count</dt><dd>133 <span>exact match</span></dd></div>
-          <div><dt>Unit tests</dt><dd>158 <span>passing</span></dd></div>
+          <div><dt>Unit tests</dt><dd>161 <span>passing</span></dd></div>
           <div><dt>Profitability claims</dt><dd>0 <span>by design</span></dd></div>
         </dl>
       </div>
@@ -308,7 +308,7 @@ stop_reason duration_elapsed</code></pre>
             <p>Replay and normalize enforced the frame count; the soak's judge did not, and never printed <code>stop_reason</code>. Now reports <code>manifest_mismatch</code> as unhealthy.</p>
           </article>
         </div>
-        <p class="eyebrow reveal" style="margin-top: 2.2rem">Open findings, ranked</p>
+        <p class="eyebrow reveal" style="margin-top: 2.2rem">Findings — closed and still open</p>
         <div class="grid grid-2">
           <article class="card reveal">
             <p class="mono-label status-next">Open · 1</p>
@@ -321,9 +321,9 @@ stop_reason duration_elapsed</code></pre>
             <p>Chunks continue their numbering in an existing dir, but manifest and sequence restart at zero — re-capturing into one dir collides. Refuse or resume; all live paths use fresh dirs today.</p>
           </article>
           <article class="card reveal">
-            <p class="mono-label status-next">Open · 3</p>
-            <h3>No schema-version gate</h3>
-            <p>Captures declare <code>schema_version</code>; no tool reads it back. A format change would be silently misread instead of refused.</p>
+            <p class="mono-label status-done">Closed · schema gate</p>
+            <h3>Captures declare versions; tools enforce them</h3>
+            <p><code>check</code>, <code>normalize</code>, and <code>replay</code> now refuse a newer <code>schema_version</code> instead of misreading it — one gate test per reader.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label status-next">Open · 4</p>

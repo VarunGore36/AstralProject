@@ -277,7 +277,16 @@ pub fn signal_hash(signals: &[Signal]) -> String {
 
 fn read_manifest(input: &Path) -> Result<CaptureManifest, ReplayError> {
     let body = std::fs::read_to_string(input.join(MANIFEST_FILE))?;
-    Ok(serde_json::from_str(&body)?)
+    let manifest: CaptureManifest = serde_json::from_str(&body)?;
+    // A format change must fail loudly here, not misread silently.
+    if manifest.schema_version != astra_types::SCHEMA_VERSION {
+        return Err(ReplayError::Malformed(format!(
+            "unsupported capture schema version {}, this build reads {}",
+            manifest.schema_version,
+            astra_types::SCHEMA_VERSION
+        )));
+    }
+    Ok(manifest)
 }
 
 #[cfg(test)]
@@ -698,6 +707,29 @@ mod tests {
         let body = std::fs::read_to_string(input.join(MANIFEST_FILE)).unwrap();
         let mut manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
         manifest["frames_written"] = serde_json::json!(99);
+        std::fs::write(
+            input.join(MANIFEST_FILE),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let mut strategy = Recorder::plain();
+        assert!(matches!(
+            replay(&input, 7, &mut strategy),
+            Err(ReplayError::Malformed(_))
+        ));
+
+        std::fs::remove_dir_all(&input).unwrap();
+    }
+
+    #[test]
+    fn a_future_schema_version_is_refused_not_misread() {
+        let input = temp_directory("schema-version");
+        write_capture(&input, &instrument(), vec![DEPTH_FRAME.as_bytes().to_vec()]);
+
+        let body = std::fs::read_to_string(input.join(MANIFEST_FILE)).unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+        manifest["schema_version"] = serde_json::json!(astra_types::SCHEMA_VERSION + 1);
         std::fs::write(
             input.join(MANIFEST_FILE),
             serde_json::to_string(&manifest).unwrap(),

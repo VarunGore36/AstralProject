@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use astra_types::{CaptureFlags, CaptureManifest, GapMarker, Timestamp};
+use astra_types::{CaptureFlags, CaptureManifest, GapMarker, SCHEMA_VERSION, Timestamp};
 
 use crate::capture::{FRAMES_DIR, MANIFEST_FILE};
 use crate::error::RecordError;
@@ -157,7 +157,15 @@ fn observe_timestamp(report: &mut CheckReport, timestamp: Timestamp) {
 
 fn read_manifest(input: &Path) -> Result<CaptureManifest, RecordError> {
     let body = std::fs::read_to_string(input.join(MANIFEST_FILE))?;
-    Ok(serde_json::from_str(&body)?)
+    let manifest: CaptureManifest = serde_json::from_str(&body)?;
+    // A format change must fail loudly here, not misread silently.
+    if manifest.schema_version != SCHEMA_VERSION {
+        return Err(RecordError::SchemaVersion {
+            found: manifest.schema_version,
+            expected: SCHEMA_VERSION,
+        });
+    }
+    Ok(manifest)
 }
 
 /// Render the audit report exactly as the CLI prints it.
@@ -520,6 +528,29 @@ mod tests {
         assert_eq!(report.manifest_mismatch, Some((99, 2)));
         assert_eq!(report.stop_reason.as_deref(), Some("duration_elapsed"));
         assert!(!report.is_healthy());
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn a_future_schema_version_is_refused_not_misread() {
+        let output = temp_directory("schema-version");
+        write_records(
+            &output,
+            vec![(depth_frame(100, 110), CaptureFlags::NONE)],
+            10,
+        );
+
+        let manifest_path = output.join(crate::capture::MANIFEST_FILE);
+        let body = std::fs::read_to_string(&manifest_path).unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+        manifest["schema_version"] = serde_json::json!(SCHEMA_VERSION + 1);
+        std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        assert!(matches!(
+            check(&output),
+            Err(crate::error::RecordError::SchemaVersion { .. })
+        ));
 
         std::fs::remove_dir_all(&output).unwrap();
     }
