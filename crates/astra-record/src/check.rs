@@ -155,7 +155,7 @@ fn observe_timestamp(report: &mut CheckReport, timestamp: Timestamp) {
     report.last_ts = Some(timestamp);
 }
 
-fn read_manifest(input: &Path) -> Result<CaptureManifest, RecordError> {
+pub(crate) fn read_manifest(input: &Path) -> Result<CaptureManifest, RecordError> {
     let body = std::fs::read_to_string(input.join(MANIFEST_FILE))?;
     let manifest: CaptureManifest = serde_json::from_str(&body)?;
     // A format change must fail loudly here, not misread silently.

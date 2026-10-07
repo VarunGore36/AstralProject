@@ -687,6 +687,7 @@ which equality broke).
 | Live-book error counting | negative-quantity diff counted as `errors` while `updates` counts successes; capture output prints both | UNIT-TESTED |
 | Check output golden format | `check` rendering moved into the lib with line-by-line golden tests, so the `verdict` line `soak.sh` parses cannot drift silently; CLI output verified byte-identical after the move | PINNED |
 | CLI output contracts pinned | `capture` (`frames` line parsed by `soak.sh status`), `replay` (`signal_hash`), and `exec` reports all render through golden-tested lib functions; byte-identical output verified live after each move | PINNED |
+| Reconstruct gated like every reader | `reconstruct` verifies schema version and manifest frame count before rebuilding, failing loud on foreign or half-written captures | GATED |
 | Capture schema-version gate | `check`, `normalize`, and `replay` refuse manifests declaring a newer schema version instead of misreading them; one gate test per reader | GATED |
 
 ### What the test suite does not cover

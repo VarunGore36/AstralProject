@@ -15,6 +15,8 @@ pub enum RecordError {
     Book(#[from] astra_book::BookError),
     #[error("unreadable snapshot: {0}")]
     Snapshot(String),
+    #[error("manifest claims {claimed} venue frames but the chunks hold {actual}")]
+    ManifestMismatch { claimed: u64, actual: u64 },
     #[error("feed error: {0}")]
     Feed(#[from] FeedError),
     #[error("socket error: {0}")]

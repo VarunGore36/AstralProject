@@ -29,6 +29,10 @@ pub fn reconstruct(
     input: &Path,
     snapshot: Option<&Path>,
 ) -> Result<ReconstructionSummary, RecordError> {
+    // Gated like every other reader: version-checked manifest first, so a
+    // foreign or half-written capture fails here instead of rebuilding a
+    // book out of bytes this build cannot understand.
+    let manifest = crate::check::read_manifest(input)?;
     let mut summary = ReconstructionSummary::default();
     let mut reconstructor = Reconstructor::new();
 
@@ -72,6 +76,13 @@ pub fn reconstruct(
     summary.gaps = reconstructor.gaps;
     summary.rejected_after_gap = reconstructor.rejected_after_gap;
     summary.book = reconstructor.book().clone();
+
+    if summary.venue_frames != manifest.frames_written {
+        return Err(RecordError::ManifestMismatch {
+            claimed: manifest.frames_written,
+            actual: summary.venue_frames,
+        });
+    }
 
     Ok(summary)
 }
@@ -335,6 +346,25 @@ mod tests {
         assert_eq!(summary.synthetic_records, 1);
         assert_eq!(summary.venue_frames, 1);
         assert_eq!(summary.book.bids_len(), 6);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn a_doctored_manifest_fails_the_reconstruction() {
+        let output = temp_directory("doctored");
+        write_capture(&output, vec![real_frame(), real_frame()]);
+
+        let manifest_path = output.join(crate::capture::MANIFEST_FILE);
+        let body = std::fs::read_to_string(&manifest_path).unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+        manifest["frames_written"] = serde_json::json!(99);
+        std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        assert!(matches!(
+            reconstruct(&output, None),
+            Err(crate::error::RecordError::ManifestMismatch { .. })
+        ));
 
         std::fs::remove_dir_all(&output).unwrap();
     }
