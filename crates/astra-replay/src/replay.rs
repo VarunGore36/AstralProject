@@ -275,6 +275,32 @@ pub fn signal_hash(signals: &[Signal]) -> String {
         .collect()
 }
 
+/// Render the replay report exactly as the CLI prints it.
+///
+/// Like the audit report, this format is load-bearing for anything that
+/// parses `signal_hash` out of replay runs. Change it with a golden test.
+pub fn format_report(input: &Path, seed: u64, report: &ReplayReport) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "input       {}", input.display());
+    let _ = writeln!(out, "seed        {seed}");
+    let _ = writeln!(out, "frames      {}", report.frames);
+    let _ = writeln!(out, "events      {}", report.events_emitted);
+    let _ = writeln!(out, "trades      {}", report.trade_events);
+    let _ = writeln!(out, "topbooks    {}", report.top_book_events);
+    let _ = writeln!(out, "gaps        {}", report.gaps);
+    let _ = writeln!(
+        out,
+        "skipped     {}",
+        report.skipped_channel + report.skipped_unparseable
+    );
+    let _ = writeln!(out, "signals     {}", report.signals);
+    let _ = writeln!(out, "signal_hash {}", report.signal_hash);
+
+    out
+}
+
 fn read_manifest(input: &Path) -> Result<CaptureManifest, ReplayError> {
     let body = std::fs::read_to_string(input.join(MANIFEST_FILE))?;
     let manifest: CaptureManifest = serde_json::from_str(&body)?;
@@ -743,5 +769,35 @@ mod tests {
         ));
 
         std::fs::remove_dir_all(&input).unwrap();
+    }
+
+    #[test]
+    fn the_report_format_is_pinned_line_by_line() {
+        let report = ReplayReport {
+            frames: 96,
+            events_emitted: 96,
+            trade_events: 0,
+            top_book_events: 0,
+            gaps: 0,
+            skipped_channel: 0,
+            skipped_unparseable: 0,
+            signals: 96,
+            signal_hash: "f66ae25f".repeat(8),
+        };
+        let text = format_report(std::path::Path::new("./capture"), 7, &report);
+        for line in [
+            "input       ./capture",
+            "seed        7",
+            "frames      96",
+            "events      96",
+            "trades      0",
+            "topbooks    0",
+            "gaps        0",
+            "skipped     0",
+            "signals     96",
+            "signal_hash f66ae25ff66ae25ff66ae25ff66ae25ff66ae25ff66ae25ff66ae25ff66ae25f",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
     }
 }

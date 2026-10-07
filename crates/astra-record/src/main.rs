@@ -178,52 +178,16 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
 
     let outcome = run_capture(options, interrupted)?;
 
-    println!("capture_id  {}", outcome.capture_id);
-    println!("output      {}", args.output.display());
-    println!("url         {url}");
-    println!("instrument  {instrument}");
-    println!("channel     {}", args.channel);
-    println!("frames      {}", outcome.frames_written);
-    println!("checked     {}", outcome.checked_frames);
-    println!("conn_gaps   {}", outcome.connection_gaps);
-    println!("seq_gaps    {}", outcome.sequence_gaps);
-    for fanout in &outcome.fanouts {
-        println!(
-            "fanout      {} {} frames={} checked={} gaps={}",
-            fanout.dir.display(),
-            fanout.channel,
-            fanout.frames_written,
-            fanout.checked_frames,
-            fanout.connection_gaps + fanout.sequence_gaps,
-        );
-    }
-    if outcome.unknown_frames > 0 {
-        println!(
-            "unknown     {} (first: {})",
-            outcome.unknown_frames,
-            outcome
-                .first_unknown_stream
-                .as_deref()
-                .unwrap_or("unparseable")
-        );
-    }
-    println!(
-        "latency_us  p50 {:.1} p99 {:.1} max {:.1} ({} frames, read to stored)",
-        outcome.latency.p50_ns as f64 / 1_000.0,
-        outcome.latency.p99_ns as f64 / 1_000.0,
-        outcome.latency.max_ns as f64 / 1_000.0,
-        outcome.latency.samples
+    print!(
+        "{}",
+        astra_record::capture::format_outcome(
+            &args.output,
+            &url,
+            &instrument,
+            args.channel,
+            &outcome
+        )
     );
-    println!(
-        "book_us     p50 {:.1} p99 {:.1} max {:.1} (updates {}, errors {}, read to book-updated)",
-        outcome.book_latency.p50_ns as f64 / 1_000.0,
-        outcome.book_latency.p99_ns as f64 / 1_000.0,
-        outcome.book_latency.max_ns as f64 / 1_000.0,
-        outcome.book_updates,
-        outcome.book_errors
-    );
-    println!("stop_reason {}", outcome.stop_reason);
-    println!("manifest    {}", args.output.join(MANIFEST_FILE).display());
 
     Ok(())
 }

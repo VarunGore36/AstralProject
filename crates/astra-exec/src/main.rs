@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::str::FromStr;
 
-use astra_exec::{LimitOrder, MODEL_VERSION, Side, probe_capture};
+use astra_exec::{LimitOrder, Side, probe_capture};
 use astra_types::Fixed;
 use clap::Parser;
 
@@ -76,44 +76,15 @@ fn run(cli: Cli) -> Result<(), String> {
 
     let report =
         probe_capture(&cli.input, 7, &order, cli.fee_bps).map_err(|error| error.to_string())?;
+    let side = match cli.side {
+        SideArg::Buy => "buy",
+        SideArg::Sell => "sell",
+    };
 
-    println!("input       {}", cli.input.display());
-    println!(
-        "order       {} {} x {}",
-        match cli.side {
-            SideArg::Buy => "buy",
-            SideArg::Sell => "sell",
-        },
-        order.price,
-        order.quantity
+    print!(
+        "{}",
+        astra_exec::format_probe_report(&cli.input, side, &order, cli.fee_bps, &report)
     );
-    println!("fee_bps     {}", cli.fee_bps);
-    println!("trades      {}", report.trades);
-    println!("gaps        {}", report.gaps);
-    match report.outcome {
-        astra_exec::OrderOutcome::Filled {
-            fill_price,
-            fee,
-            slippage,
-            print_seq,
-        } => {
-            println!("result      filled");
-            println!("fill_price  {fill_price}");
-            println!("fee         {fee}");
-            println!("slippage    {slippage}");
-            println!("print_seq   {print_seq}");
-        }
-        astra_exec::OrderOutcome::Unfilled { reason } => {
-            println!(
-                "result      unfilled ({})",
-                match reason {
-                    astra_exec::UnfilledReason::NoThroughPrint => "no-through-print",
-                    astra_exec::UnfilledReason::VoidedByGap => "voided-by-gap",
-                }
-            );
-        }
-    }
-    println!("model       {MODEL_VERSION}");
 
     Ok(())
 }

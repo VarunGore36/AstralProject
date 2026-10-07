@@ -153,6 +153,58 @@ pub struct ProbeReport {
     pub outcome: OrderOutcome,
 }
 
+/// Render a probe report exactly as the CLI prints it.
+///
+/// Same contract as the other report printers: golden-tested, changed only
+/// together with its test.
+pub fn format_probe_report(
+    input: &Path,
+    side: &str,
+    order: &LimitOrder,
+    fee_bps: u32,
+    report: &ProbeReport,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "input       {}", input.display());
+    let _ = writeln!(
+        out,
+        "order       {side} {} x {}",
+        order.price, order.quantity
+    );
+    let _ = writeln!(out, "fee_bps     {fee_bps}");
+    let _ = writeln!(out, "trades      {}", report.trades);
+    let _ = writeln!(out, "gaps        {}", report.gaps);
+    match &report.outcome {
+        OrderOutcome::Filled {
+            fill_price,
+            fee,
+            slippage,
+            print_seq,
+        } => {
+            let _ = writeln!(out, "result      filled");
+            let _ = writeln!(out, "fill_price  {fill_price}");
+            let _ = writeln!(out, "fee         {fee}");
+            let _ = writeln!(out, "slippage    {slippage}");
+            let _ = writeln!(out, "print_seq   {print_seq}");
+        }
+        OrderOutcome::Unfilled { reason } => {
+            let _ = writeln!(
+                out,
+                "result      unfilled ({})",
+                match reason {
+                    UnfilledReason::NoThroughPrint => "no-through-print",
+                    UnfilledReason::VoidedByGap => "voided-by-gap",
+                }
+            );
+        }
+    }
+    let _ = writeln!(out, "model       {MODEL_VERSION}");
+
+    out
+}
+
 #[derive(Debug, Error)]
 pub enum ProbeError {
     #[error("replay error: {0}")]
@@ -412,5 +464,56 @@ mod tests {
                 "order {bad_price} x {bad_quantity} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn the_probe_report_format_is_pinned_line_by_line() {
+        let order = buy_at("100.00000000");
+        let filled = ProbeReport {
+            trades: 2,
+            gaps: 0,
+            outcome: OrderOutcome::Filled {
+                fill_price: price("100.00000000"),
+                fee: price("0.05000000"),
+                slippage: Fixed::ZERO,
+                print_seq: 1,
+            },
+        };
+        let text =
+            format_probe_report(std::path::Path::new("./capture"), "buy", &order, 5, &filled);
+        for line in [
+            "input       ./capture",
+            "order       buy 100.00000000 x 1.00000000",
+            "fee_bps     5",
+            "trades      2",
+            "gaps        0",
+            "result      filled",
+            "fill_price  100.00000000",
+            "fee         0.05000000",
+            "slippage    0.00000000",
+            "print_seq   1",
+            "model       exec-v1",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
+
+        let unfilled = ProbeReport {
+            trades: 0,
+            gaps: 1,
+            outcome: OrderOutcome::Unfilled {
+                reason: UnfilledReason::VoidedByGap,
+            },
+        };
+        let text = format_probe_report(
+            std::path::Path::new("./capture"),
+            "sell",
+            &sell_at("100.00000000"),
+            5,
+            &unfilled,
+        );
+        assert!(
+            text.contains("result      unfilled (voided-by-gap)"),
+            "{text}"
+        );
     }
 }

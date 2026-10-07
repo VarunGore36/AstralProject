@@ -221,6 +221,74 @@ pub fn write_manifest(output: &Path, manifest: &CaptureManifest) -> Result<(), R
     Ok(())
 }
 
+/// Render the capture outcome exactly as the CLI prints it.
+///
+/// The `frames` line is load-bearing: `ops/soak.sh status` greps it out of
+/// capture logs. Golden-tested below; change format and test together.
+pub fn format_outcome(
+    output: &Path,
+    url: &str,
+    instrument: &Instrument,
+    channel: Channel,
+    outcome: &CaptureOutcome,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "capture_id  {}", outcome.capture_id);
+    let _ = writeln!(out, "output      {}", output.display());
+    let _ = writeln!(out, "url         {url}");
+    let _ = writeln!(out, "instrument  {instrument}");
+    let _ = writeln!(out, "channel     {channel}");
+    let _ = writeln!(out, "frames      {}", outcome.frames_written);
+    let _ = writeln!(out, "checked     {}", outcome.checked_frames);
+    let _ = writeln!(out, "conn_gaps   {}", outcome.connection_gaps);
+    let _ = writeln!(out, "seq_gaps    {}", outcome.sequence_gaps);
+    for fanout in &outcome.fanouts {
+        let _ = writeln!(
+            out,
+            "fanout      {} {} frames={} checked={} gaps={}",
+            fanout.dir.display(),
+            fanout.channel,
+            fanout.frames_written,
+            fanout.checked_frames,
+            fanout.connection_gaps + fanout.sequence_gaps,
+        );
+    }
+    if outcome.unknown_frames > 0 {
+        let _ = writeln!(
+            out,
+            "unknown     {} (first: {})",
+            outcome.unknown_frames,
+            outcome
+                .first_unknown_stream
+                .as_deref()
+                .unwrap_or("unparseable")
+        );
+    }
+    let _ = writeln!(
+        out,
+        "latency_us  p50 {:.1} p99 {:.1} max {:.1} ({} frames, read to stored)",
+        outcome.latency.p50_ns as f64 / 1_000.0,
+        outcome.latency.p99_ns as f64 / 1_000.0,
+        outcome.latency.max_ns as f64 / 1_000.0,
+        outcome.latency.samples
+    );
+    let _ = writeln!(
+        out,
+        "book_us     p50 {:.1} p99 {:.1} max {:.1} (updates {}, errors {}, read to book-updated)",
+        outcome.book_latency.p50_ns as f64 / 1_000.0,
+        outcome.book_latency.p99_ns as f64 / 1_000.0,
+        outcome.book_latency.max_ns as f64 / 1_000.0,
+        outcome.book_updates,
+        outcome.book_errors
+    );
+    let _ = writeln!(out, "stop_reason {}", outcome.stop_reason);
+    let _ = writeln!(out, "manifest    {}", output.join(MANIFEST_FILE).display());
+
+    out
+}
+
 struct Session {
     dir: PathBuf,
     channel: Channel,
@@ -1115,6 +1183,71 @@ mod tests {
         assert_eq!(outcome.book_errors, 1);
 
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn the_capture_report_format_is_pinned_line_by_line() {
+        // ops/soak.sh status greps the frames line out of capture logs.
+        // If this format moves, supervision breaks silently.
+        let outcome = CaptureOutcome {
+            capture_id: "test-id".to_owned(),
+            frames_written: 601,
+            checked_frames: 601,
+            connection_gaps: 0,
+            sequence_gaps: 0,
+            stop_reason: STOP_DURATION.to_owned(),
+            latency: LatencySummary {
+                samples: 601,
+                p50_ns: 108_000,
+                p99_ns: 761_000,
+                max_ns: 1_400_000,
+            },
+            book_latency: LatencySummary {
+                samples: 601,
+                p50_ns: 15_000,
+                p99_ns: 68_000,
+                max_ns: 100_000,
+            },
+            book_updates: 601,
+            book_errors: 0,
+            fanouts: vec![FanoutOutcome {
+                capture_id: "fanout-id".to_owned(),
+                channel: Channel::BookSnapshot,
+                dir: PathBuf::from("./val-book_snapshot"),
+                frames_written: 600,
+                checked_frames: 0,
+                connection_gaps: 0,
+                sequence_gaps: 0,
+            }],
+            unknown_frames: 2,
+            first_unknown_stream: Some("btcusdt@kline_1m".to_owned()),
+        };
+        let text = format_outcome(
+            Path::new("./val"),
+            "wss://example.invalid/ws",
+            &instrument(),
+            Channel::BookDiff,
+            &outcome,
+        );
+        for line in [
+            "capture_id  test-id",
+            "output      ./val",
+            "url         wss://example.invalid/ws",
+            "instrument  binance spot BTC/USDT",
+            "channel     book_diff",
+            "frames      601",
+            "checked     601",
+            "conn_gaps   0",
+            "seq_gaps    0",
+            "fanout      ./val-book_snapshot book_snapshot frames=600 checked=0 gaps=0",
+            "unknown     2 (first: btcusdt@kline_1m)",
+            "latency_us  p50 108.0 p99 761.0 max 1400.0 (601 frames, read to stored)",
+            "book_us     p50 15.0 p99 68.0 max 100.0 (updates 601, errors 0, read to book-updated)",
+            "stop_reason duration_elapsed",
+            "manifest    ./val/manifest.json",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
     }
 
     #[test]
