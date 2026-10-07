@@ -212,6 +212,8 @@ fn reconstruct(args: ReconstructArgs) -> Result<(), RecordError> {
     println!("skipped     {}", summary.skipped_before_snapshot);
     println!("inband      {}", summary.inband_snapshots);
     println!("gaps        {}", summary.gaps);
+    println!("conn_gaps   {}", summary.connection_gaps);
+    println!("undecodable {}", summary.undecodable_gaps);
     println!("rejected    {}", summary.rejected_after_gap);
     println!("bid levels  {}", summary.book.bids_len());
     println!("ask levels  {}", summary.book.asks_len());

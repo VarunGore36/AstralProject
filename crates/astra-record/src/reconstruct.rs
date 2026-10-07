@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use astra_book::{BookError, BookSnapshot, OrderBook, Reconstructor, UpdateSpan};
-use astra_types::CaptureFlags;
+use astra_types::{CaptureFlags, GapMarker};
 
 use crate::capture::FRAMES_DIR;
 use crate::error::RecordError;
@@ -19,6 +19,15 @@ pub struct ReconstructionSummary {
     pub skipped_before_snapshot: u64,
     pub gaps: u64,
     pub rejected_after_gap: u64,
+    /// Connection-type gap markers (reconnects). Sequence-type gaps surface
+    /// through the reconstructor's own discontinuity check instead, so they
+    /// are not double-counted here. (A reconnect whose fresh spans also jump
+    /// the venue sequence counts in both this and `gaps` — once for the
+    /// capture event, once for the book impact. That overlap is honest;
+    /// merging them would hide which happened.)
+    pub connection_gaps: u64,
+    /// Synthetic records no parser understands. Counted, not hidden.
+    pub undecodable_gaps: u64,
     pub snapshot_loaded: Option<u64>,
     pub inband_snapshots: u64,
     pub first_error: Option<BookError>,
@@ -47,6 +56,11 @@ pub fn reconstruct(
 
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
             summary.synthetic_records += 1;
+            match serde_json::from_slice::<GapMarker>(&record.payload) {
+                Ok(marker) if marker.reason.starts_with("update_id_gap") => {}
+                Ok(_) => summary.connection_gaps += 1,
+                Err(_) => summary.undecodable_gaps += 1,
+            }
             continue;
         }
 
@@ -119,8 +133,8 @@ fn load_snapshot(path: &Path) -> Result<BookSnapshot, RecordError> {
 mod tests {
     use super::*;
     use astra_types::{
-        CaptureId, CaptureManifest, CaptureRecord, Channel, Instrument, MarketType, SCHEMA_VERSION,
-        Symbol, Timestamp, Venue,
+        CaptureId, CaptureManifest, CaptureRecord, Channel, GapMarker, Instrument, MarketType,
+        SCHEMA_VERSION, Symbol, Timestamp, Venue,
     };
     use std::path::PathBuf;
 
@@ -346,6 +360,55 @@ mod tests {
         assert_eq!(summary.synthetic_records, 1);
         assert_eq!(summary.venue_frames, 1);
         assert_eq!(summary.book.bids_len(), 6);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn connection_gaps_are_counted_and_undecodable_ones_surfaced() {
+        let output = temp_directory("gap-counts");
+        write_capture(&output, vec![real_frame()]);
+
+        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        let marker = GapMarker {
+            started_at: Timestamp::from_unix_nanos(1),
+            ended_at: Timestamp::from_unix_nanos(2),
+            attempts: 1,
+            reason: "venue_close".to_owned(),
+        };
+        writer
+            .append(&CaptureRecord {
+                seq: 1,
+                instrument: instrument(),
+                channel: Channel::BookDiff,
+                ts_socket: Timestamp::from_unix_nanos(1),
+                ts_exchange: None,
+                payload: serde_json::to_vec(&marker).unwrap(),
+                flags: CaptureFlags::SYNTHETIC
+                    .union(CaptureFlags::SEQUENCE_GAP)
+                    .union(CaptureFlags::UNRELIABLE),
+            })
+            .unwrap();
+        writer
+            .append(&CaptureRecord {
+                seq: 2,
+                instrument: instrument(),
+                channel: Channel::BookDiff,
+                ts_socket: Timestamp::from_unix_nanos(2),
+                ts_exchange: None,
+                payload: b"not a gap marker".to_vec(),
+                flags: CaptureFlags::SYNTHETIC
+                    .union(CaptureFlags::SEQUENCE_GAP)
+                    .union(CaptureFlags::UNRELIABLE),
+            })
+            .unwrap();
+        writer.finish().unwrap();
+
+        let summary = reconstruct(&output, None).unwrap();
+
+        assert_eq!(summary.synthetic_records, 2);
+        assert_eq!(summary.connection_gaps, 1);
+        assert_eq!(summary.undecodable_gaps, 1);
 
         std::fs::remove_dir_all(&output).unwrap();
     }

@@ -72,7 +72,7 @@ stop_reason duration_elapsed</code></pre>
         <dl class="hero-stats reveal">
           <div><dt>Frames verified live</dt><dd>601 <span>of 601 checked</span></dd></div>
           <div><dt>Bootstrap skip count</dt><dd>133 <span>exact match</span></dd></div>
-          <div><dt>Unit tests</dt><dd>166 <span>passing</span></dd></div>
+          <div><dt>Unit tests</dt><dd>167 <span>passing</span></dd></div>
           <div><dt>Profitability claims</dt><dd>0 <span>by design</span></dd></div>
         </dl>
       </div>
@@ -332,8 +332,8 @@ stop_reason duration_elapsed</code></pre>
           </article>
           <article class="card reveal">
             <p class="mono-label status-next">Open · 4</p>
-            <h3><code>reconstruct</code> is the least strict reader</h3>
-            <p>Never opens the manifest, never checks sequence continuity, under-counts connection gaps. Should share <code>check</code>'s prelude before rebuilding books.</p>
+            <h3><code>reconstruct</code>, half-strictened</h3>
+            <p>Now manifest-gated and counting connection gaps — but still no sequence-continuity walk of its own. Sharing <code>check</code>'s prelude remains the fix.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label status-next">Open · 5</p>
