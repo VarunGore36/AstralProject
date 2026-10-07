@@ -267,7 +267,7 @@ fn bybit_trades(payload: &[u8]) -> Option<Vec<TradePrint>> {
                 trade_id: Some(trade.trade_id),
                 price: trade.price,
                 quantity: trade.quantity,
-                side: Some(trade.side),
+                side: normalize_side(&trade.side),
                 ts_exchange: Some(Timestamp::from_unix_nanos(
                     trade.trade_time_millis.saturating_mul(1_000_000),
                 )),
@@ -291,20 +291,19 @@ fn coinbase_trade(payload: &[u8]) -> Option<TradePrint> {
         trade_id: Some(event.trade_id.to_string()),
         price: event.price,
         quantity: event.size,
-        side: Some(capitalize(&event.side)),
+        side: normalize_side(&event.side),
         ts_exchange: parse_rfc3339_nanos(&event.time),
     })
 }
 
-fn capitalize(side: &str) -> String {
-    let mut chars = side.chars();
-    match chars.next() {
-        Some(first) => {
-            let mut result: String = first.to_uppercase().collect();
-            result.push_str(&chars.as_str().to_lowercase());
-            result
-        }
-        None => String::new(),
+/// Canonical trade sides. Anything the venues do not actually send becomes
+/// unknown (`None`) instead of being stored verbatim — the print (price,
+/// quantity, time) is real data worth keeping; a novel side label is not.
+fn normalize_side(side: &str) -> Option<String> {
+    match side.to_ascii_lowercase().as_str() {
+        "buy" => Some("Buy".to_owned()),
+        "sell" => Some("Sell".to_owned()),
+        _ => None,
     }
 }
 
@@ -1201,5 +1200,36 @@ mod tests {
                 "payload parsed that should not have: {payload:?}"
             );
         }
+    }
+
+    #[test]
+    fn unknown_trade_sides_become_unknown_not_verbatim() {
+        // The print is real data and stays; a novel side label is stored as
+        // unknown instead of verbatim. Canonical Buy/Sell in any case pass.
+        let bybit = br#"{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304486868,"data":[{"T":1672304486865,"s":"BTCUSDT","S":"bid","v":"0.001","p":"16578.50","i":"aaa","seq":1}]}"#;
+        let prints = trade_prints(Venue::Bybit, Channel::Trade, bybit).unwrap();
+        assert_eq!(prints.len(), 1);
+        assert_eq!(prints[0].price.to_string(), "16578.50000000");
+        assert_eq!(prints[0].side, None);
+
+        for (venue, payload) in [
+            (
+                Venue::Bybit,
+                br#"{"topic":"t","ts":1,"data":[{"T":1,"s":"x","S":"","v":"0.001","p":"1","i":"a","seq":1}]}"#.as_slice(),
+            ),
+            (
+                Venue::Coinbase,
+                br#"{"trade_id":7,"price":"1.00000000","size":"0.5","side":"BID","time":"2026-01-01T00:00:00Z"}"#.as_slice(),
+            ),
+        ] {
+            let prints = trade_prints(venue, Channel::Trade, payload).unwrap();
+            assert_eq!(prints.len(), 1);
+            assert_eq!(prints[0].side, None);
+        }
+
+        // Any casing of the real sides still canonicalizes.
+        let mixed = br#"{"trade_id":7,"price":"1.00000000","size":"0.5","side":"sElL","time":"2026-01-01T00:00:00Z"}"#;
+        let prints = trade_prints(Venue::Coinbase, Channel::Trade, mixed).unwrap();
+        assert_eq!(prints[0].side.as_deref(), Some("Sell"));
     }
 }
