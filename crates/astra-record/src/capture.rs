@@ -221,6 +221,24 @@ pub fn write_manifest(output: &Path, manifest: &CaptureManifest) -> Result<(), R
     Ok(())
 }
 
+/// Render the init report exactly as the CLI prints it.
+///
+/// Golden-tested with the other report printers: init output is the first
+/// thing a new user sees, so its format is pinned like the rest.
+pub fn format_init_report(output: &Path, manifest: &CaptureManifest) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "capture_id  {}", manifest.capture_id.as_str());
+    let _ = writeln!(out, "output      {}", output.display());
+    let _ = writeln!(out, "instrument  {}", manifest.instrument);
+    let _ = writeln!(out, "channel     {}", manifest.channel);
+    let _ = writeln!(out, "frames      {}", manifest.frames_written);
+    let _ = writeln!(out, "manifest    {}", output.join(MANIFEST_FILE).display());
+
+    out
+}
+
 /// Render the capture outcome exactly as the CLI prints it.
 ///
 /// The `frames` line is load-bearing: `ops/soak.sh status` greps it out of
@@ -1245,6 +1263,30 @@ mod tests {
             "book_us     p50 15.0 p99 68.0 max 100.0 (updates 601, errors 0, read to book-updated)",
             "stop_reason duration_elapsed",
             "manifest    ./val/manifest.json",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
+    }
+
+    #[test]
+    fn the_init_report_format_is_pinned_line_by_line() {
+        let manifest = CaptureManifest {
+            schema_version: astra_types::SCHEMA_VERSION,
+            capture_id: CaptureId::new("init-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: instrument(),
+            channel: Channel::BookDiff,
+            frames_written: 0,
+            stop_reason: Some(STOP_IN_PROGRESS.to_owned()),
+        };
+        let text = format_init_report(Path::new("./capture"), &manifest);
+        for line in [
+            "capture_id  init-test",
+            "output      ./capture",
+            "instrument  binance spot BTC/USDT",
+            "channel     book_diff",
+            "frames      0",
+            "manifest    ./capture/manifest.json",
         ] {
             assert!(text.contains(line), "missing line: {line}\n{text}");
         }

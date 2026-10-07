@@ -129,6 +129,80 @@ fn load_snapshot(path: &Path) -> Result<BookSnapshot, RecordError> {
     .ok_or_else(|| RecordError::Snapshot(path.display().to_string()))
 }
 
+/// Render the reconstruction summary exactly as the CLI prints it.
+///
+/// Golden-tested with the other report printers.
+pub fn format_summary(
+    input: &Path,
+    snapshot: Option<&Path>,
+    summary: &ReconstructionSummary,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "input       {}", input.display());
+    let _ = writeln!(
+        out,
+        "snapshot    {}",
+        snapshot
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| format!("in-band only ({})", summary.inband_snapshots))
+    );
+    let _ = writeln!(out, "records     {}", summary.records);
+    let _ = writeln!(out, "venue       {}", summary.venue_frames);
+    let _ = writeln!(out, "synthetic   {}", summary.synthetic_records);
+    let _ = writeln!(out, "applied     {}", summary.diffs_applied);
+    let _ = writeln!(out, "unchecked   {}", summary.frames_without_a_book);
+    let _ = writeln!(out, "invalid     {}", summary.invalid_diffs);
+    let _ = writeln!(out, "skipped     {}", summary.skipped_before_snapshot);
+    let _ = writeln!(out, "inband      {}", summary.inband_snapshots);
+    let _ = writeln!(out, "gaps        {}", summary.gaps);
+    let _ = writeln!(out, "conn_gaps   {}", summary.connection_gaps);
+    let _ = writeln!(out, "undecodable {}", summary.undecodable_gaps);
+    let _ = writeln!(out, "rejected    {}", summary.rejected_after_gap);
+    let _ = writeln!(out, "bid levels  {}", summary.book.bids_len());
+    let _ = writeln!(out, "ask levels  {}", summary.book.asks_len());
+    let _ = writeln!(
+        out,
+        "best bid    {}",
+        describe_level(summary.book.best_bid())
+    );
+    let _ = writeln!(
+        out,
+        "best ask    {}",
+        describe_level(summary.book.best_ask())
+    );
+    let _ = writeln!(out, "mid         {}", describe_fixed(summary.book.mid()));
+    let _ = writeln!(out, "spread      {}", describe_fixed(summary.book.spread()));
+    let _ = writeln!(out, "crossed     {}", summary.book.is_crossed());
+
+    if summary.snapshot_loaded.is_none() && summary.inband_snapshots == 0 {
+        let _ = writeln!(
+            out,
+            "note        the book is partial: no snapshot bootstrap"
+        );
+    }
+    if let Some(error) = summary.first_error {
+        let _ = writeln!(out, "first error {error}");
+    }
+
+    out
+}
+
+fn describe_level(level: Option<astra_book::Level>) -> String {
+    match level {
+        Some(level) => format!("{} x {}", level.price, level.quantity),
+        None => "none".to_owned(),
+    }
+}
+
+fn describe_fixed(value: Option<astra_types::Fixed>) -> String {
+    match value {
+        Some(value) => value.to_string(),
+        None => "none".to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,6 +485,30 @@ mod tests {
         assert_eq!(summary.undecodable_gaps, 1);
 
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn the_summary_format_is_pinned_line_by_line() {
+        let summary = ReconstructionSummary {
+            records: 601,
+            venue_frames: 601,
+            diffs_applied: 601,
+            ..ReconstructionSummary::default()
+        };
+        let text = format_summary(std::path::Path::new("./capture"), None, &summary);
+        for line in [
+            "input       ./capture",
+            "snapshot    in-band only (0)",
+            "records     601",
+            "venue       601",
+            "applied     601",
+            "best bid    none",
+            "best ask    none",
+            "crossed     false",
+            "note        the book is partial: no snapshot bootstrap",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
     }
 
     #[test]

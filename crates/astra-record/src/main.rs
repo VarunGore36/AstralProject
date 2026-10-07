@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use astra_record::capture::{CaptureOptions, MANIFEST_FILE, init_capture, run_capture};
+use astra_record::capture::{CaptureOptions, init_capture, run_capture};
 use astra_record::error::RecordError;
 use astra_record::feed;
 use astra_types::{Channel, Instrument, MarketType, Symbol, Venue};
@@ -117,12 +117,10 @@ fn init(args: InitArgs) -> Result<(), RecordError> {
     let instrument = Instrument::new(args.venue, args.market, args.symbol);
     let manifest = init_capture(&args.output, &instrument, args.channel)?;
 
-    println!("capture_id  {}", manifest.capture_id.as_str());
-    println!("output      {}", args.output.display());
-    println!("instrument  {instrument}");
-    println!("channel     {}", args.channel);
-    println!("frames      {}", manifest.frames_written);
-    println!("manifest    {}", args.output.join(MANIFEST_FILE).display());
+    print!(
+        "{}",
+        astra_record::capture::format_init_report(&args.output, &manifest)
+    );
 
     Ok(())
 }
@@ -195,40 +193,10 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
 fn reconstruct(args: ReconstructArgs) -> Result<(), RecordError> {
     let summary = astra_record::reconstruct::reconstruct(&args.input, args.snapshot.as_deref())?;
 
-    println!("input       {}", args.input.display());
-    println!(
-        "snapshot    {}",
-        args.snapshot
-            .as_deref()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| format!("in-band only ({})", summary.inband_snapshots))
+    print!(
+        "{}",
+        astra_record::reconstruct::format_summary(&args.input, args.snapshot.as_deref(), &summary)
     );
-    println!("records     {}", summary.records);
-    println!("venue       {}", summary.venue_frames);
-    println!("synthetic   {}", summary.synthetic_records);
-    println!("applied     {}", summary.diffs_applied);
-    println!("unchecked   {}", summary.frames_without_a_book);
-    println!("invalid     {}", summary.invalid_diffs);
-    println!("skipped     {}", summary.skipped_before_snapshot);
-    println!("inband      {}", summary.inband_snapshots);
-    println!("gaps        {}", summary.gaps);
-    println!("conn_gaps   {}", summary.connection_gaps);
-    println!("undecodable {}", summary.undecodable_gaps);
-    println!("rejected    {}", summary.rejected_after_gap);
-    println!("bid levels  {}", summary.book.bids_len());
-    println!("ask levels  {}", summary.book.asks_len());
-    println!("best bid    {}", describe_level(summary.book.best_bid()));
-    println!("best ask    {}", describe_level(summary.book.best_ask()));
-    println!("mid         {}", describe_fixed(summary.book.mid()));
-    println!("spread      {}", describe_fixed(summary.book.spread()));
-    println!("crossed     {}", summary.book.is_crossed());
-
-    if summary.snapshot_loaded.is_none() && summary.inband_snapshots == 0 {
-        println!("note        the book is partial: no snapshot bootstrap");
-    }
-    if let Some(error) = summary.first_error {
-        println!("first error {error}");
-    }
 
     Ok(())
 }
@@ -241,31 +209,16 @@ fn verify(args: VerifyArgs) -> Result<(), RecordError> {
         args.snapshot.as_deref(),
     )?;
 
-    println!("input       {}", args.input.display());
-    println!("reference   {}", args.reference.display());
-    println!("levels      {}", args.levels);
-    println!("events      {}", report.events);
-    println!("applied     {}", report.events_applied);
-    println!("skipped     {}", report.events_skipped);
-    println!("rejected    {}", report.events_rejected);
-    println!("bootstrap   {}", report.bootstrap_frames);
-    println!("checks      {}", report.checked);
-    println!("matched     {}", report.matched);
-    println!("mismatched  {}", report.mismatched);
-
-    if let Some(mismatch) = report.first_mismatch {
-        println!("first       {mismatch}");
-    }
-
-    if args.verbose {
-        for mismatch in &report.mismatches {
-            println!("mismatch    {mismatch}");
-        }
-    }
-
-    if report.checked == 0 {
-        println!("note        nothing was checked, so nothing is verified");
-    }
+    print!(
+        "{}",
+        astra_record::compare::format_report(
+            &args.input,
+            &args.reference,
+            args.levels,
+            args.verbose,
+            &report
+        )
+    );
 
     Ok(())
 }
@@ -279,18 +232,4 @@ fn check_capture(args: CheckArgs) -> Result<(), RecordError> {
     );
 
     Ok(())
-}
-
-fn describe_level(level: Option<astra_book::Level>) -> String {
-    match level {
-        Some(level) => format!("{} x {}", level.price, level.quantity),
-        None => "none".to_owned(),
-    }
-}
-
-fn describe_fixed(value: Option<astra_types::Fixed>) -> String {
-    match value {
-        Some(value) => value.to_string(),
-        None => "none".to_owned(),
-    }
 }

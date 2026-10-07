@@ -175,6 +175,51 @@ fn load_references(reference: &Path) -> Result<Vec<BookSnapshot>, RecordError> {
     Ok(snapshots)
 }
 
+/// Render the comparison report exactly as the CLI prints it.
+///
+/// Golden-tested with the other report printers.
+pub fn format_report(
+    input: &Path,
+    reference: &Path,
+    levels: usize,
+    verbose: bool,
+    report: &ComparisonReport,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "input       {}", input.display());
+    let _ = writeln!(out, "reference   {}", reference.display());
+    let _ = writeln!(out, "levels      {levels}");
+    let _ = writeln!(out, "events      {}", report.events);
+    let _ = writeln!(out, "applied     {}", report.events_applied);
+    let _ = writeln!(out, "skipped     {}", report.events_skipped);
+    let _ = writeln!(out, "rejected    {}", report.events_rejected);
+    let _ = writeln!(out, "bootstrap   {}", report.bootstrap_frames);
+    let _ = writeln!(out, "checks      {}", report.checked);
+    let _ = writeln!(out, "matched     {}", report.matched);
+    let _ = writeln!(out, "mismatched  {}", report.mismatched);
+
+    if let Some(mismatch) = &report.first_mismatch {
+        let _ = writeln!(out, "first       {mismatch}");
+    }
+
+    if verbose {
+        for mismatch in &report.mismatches {
+            let _ = writeln!(out, "mismatch    {mismatch}");
+        }
+    }
+
+    if report.checked == 0 {
+        let _ = writeln!(
+            out,
+            "note        nothing was checked, so nothing is verified"
+        );
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,5 +336,55 @@ mod tests {
         let report = compare_streams(&[], &[], 10, None).unwrap();
         assert_eq!(report.checked, 0);
         assert_eq!(report.bootstrap_frames, 0);
+    }
+
+    #[test]
+    fn the_report_format_is_pinned_line_by_line() {
+        let report = ComparisonReport {
+            events: 300,
+            events_applied: 300,
+            bootstrap_frames: 1,
+            checked: 150,
+            matched: 149,
+            mismatched: 1,
+            first_mismatch: Some("update 99: bid level 0".to_owned()),
+            mismatches: vec!["update 99: bid level 0".to_owned()],
+            ..ComparisonReport::default()
+        };
+        let text = format_report(
+            std::path::Path::new("./capture"),
+            std::path::Path::new("./reference"),
+            10,
+            true,
+            &report,
+        );
+        for line in [
+            "input       ./capture",
+            "reference   ./reference",
+            "levels      10",
+            "events      300",
+            "applied     300",
+            "checks      150",
+            "matched     149",
+            "mismatched  1",
+            "first       update 99: bid level 0",
+            "mismatch    update 99: bid level 0",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
+        assert!(!text.contains("nothing was checked"), "{text}");
+
+        let empty = ComparisonReport::default();
+        let text = format_report(
+            std::path::Path::new("./capture"),
+            std::path::Path::new("./reference"),
+            10,
+            false,
+            &empty,
+        );
+        assert!(
+            text.contains("note        nothing was checked, so nothing is verified"),
+            "{text}"
+        );
     }
 }
