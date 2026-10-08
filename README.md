@@ -422,8 +422,11 @@ A chunk is a zstd-compressed stream of length-prefixed records: a four byte
 little-endian length followed by the encoded record. Payload bytes are stored
 exactly as received and are never re-encoded, truncated or interpreted.
 
-Chunks roll after a fixed number of records. A writer reopens an existing
-capture and continues the chunk sequence rather than overwriting it.
+Chunks roll after a fixed number of records. The chunk writer continues the
+chunk sequence in an existing directory — but capture refuses to start in one
+that already holds chunks, instead of merging new frames over old sequence
+numbers. Resume is future work; every live path captures into a fresh
+directory.
 
 ## Quickstart
 
@@ -705,6 +708,7 @@ which equality broke).
 | Trade sides fail closed | Bybit/Coinbase side labels canonicalize to Buy/Sell; anything else stores as unknown (`None`) with the print preserved, never verbatim | HARDENED |
 | Reconstruct counts connection gaps | gap markers classified on the walk: connection-type counted, sequence-type left to the reconstructor's own break, undecodable surfaced; overlap behavior documented in code | COUNTED |
 | Reconstruct counts sequence breaks | scrambled `seq` order counted in `seq_breaks` instead of silently rebuilding; finding 4 fully closed | COUNTED |
+| Used capture dirs refuse, not merge | starting a capture where chunks exist errors loudly (`CaptureExists`) instead of colliding sequence numbers; resume stays future work | GUARDED |
 | Capture schema-version gate | `check`, `normalize`, and `replay` refuse manifests declaring a newer schema version instead of misreading them; one gate test per reader | GATED |
 | Failure policy table | every corruption × subcommand behavior read off the code into `docs/failure-policy.md`, including the two divergences most worth removing (`compare` manifest-blindness, `reconstruct` synthetic-skip) | DOCUMENTED |
 

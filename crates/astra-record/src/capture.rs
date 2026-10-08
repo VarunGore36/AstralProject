@@ -191,6 +191,20 @@ pub fn install_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
+fn has_chunks(dir: &Path) -> Result<bool, RecordError> {
+    let frames = dir.join(FRAMES_DIR);
+    if !frames.exists() {
+        return Ok(false);
+    }
+    for entry in std::fs::read_dir(&frames)? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+        if name.starts_with("chunk-") && name.ends_with(".zst") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub fn init_capture(
     output: &Path,
     instrument: &Instrument,
@@ -318,6 +332,15 @@ struct Session {
 
 impl Session {
     fn open(dir: &Path, instrument: &Instrument, channel: Channel) -> Result<Self, RecordError> {
+        // Never capture into a directory that already holds chunks: the
+        // manifest would be rewritten and seq restarted at zero while old
+        // chunks stay on disk, producing sequence collisions that look like
+        // venue data. Resume is future work; silent corruption is not an
+        // interim step. All live paths (including ops/soak.sh) use fresh
+        // directories.
+        if has_chunks(dir)? {
+            return Err(RecordError::CaptureExists(dir.to_owned()));
+        }
         let manifest = init_capture(dir, instrument, channel)?;
         let writer = ChunkWriter::open(dir.join(FRAMES_DIR), RECORDS_PER_CHUNK)?;
         Ok(Session {
@@ -1201,6 +1224,36 @@ mod tests {
         assert_eq!(outcome.book_errors, 1);
 
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn capturing_into_a_used_directory_is_refused_not_merged() {
+        let output = temp_directory("used-dir");
+        std::fs::create_dir_all(output.join(FRAMES_DIR)).unwrap();
+        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        writer
+            .append(&CaptureRecord {
+                seq: 0,
+                instrument: instrument(),
+                channel: Channel::BookDiff,
+                ts_socket: Timestamp::from_unix_nanos(0),
+                ts_exchange: None,
+                payload: depth_frame(100, 110).into_bytes(),
+                flags: CaptureFlags::NONE,
+            })
+            .unwrap();
+        writer.finish().unwrap();
+
+        assert!(matches!(
+            Session::open(&output, &instrument(), Channel::BookDiff),
+            Err(crate::error::RecordError::CaptureExists(_))
+        ));
+        // A fresh directory still opens: the guard targets chunks, not dirs.
+        let fresh = temp_directory("fresh-dir");
+        assert!(Session::open(&fresh, &instrument(), Channel::BookDiff).is_ok());
+
+        std::fs::remove_dir_all(&output).unwrap();
+        std::fs::remove_dir_all(&fresh).unwrap();
     }
 
     #[test]

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use thiserror::Error;
 
 use crate::feed::FeedError;
@@ -25,6 +27,8 @@ pub enum RecordError {
     TransportUnsupported,
     #[error("signal handler error: {0}")]
     Signal(String),
+    #[error("capture directory already holds chunks, refusing to overwrite: {0}")]
+    CaptureExists(PathBuf),
     #[error("unsupported capture schema version {found}, this build reads {expected}")]
     SchemaVersion { found: u32, expected: u32 },
 }
