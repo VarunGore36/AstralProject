@@ -30,8 +30,24 @@ pub fn compare(
     levels: usize,
     snapshot: Option<&Path>,
 ) -> Result<ComparisonReport, RecordError> {
-    let events = load_events(input)?;
-    let references = load_references(reference)?;
+    // Gated like every other reader: a torn manifest must fail here, not
+    // produce a comparison against half a dataset.
+    let manifest = crate::check::read_manifest(input)?;
+    let reference_manifest = crate::check::read_manifest(reference)?;
+    let (events, venue_frames) = load_events(input)?;
+    if venue_frames != manifest.frames_written {
+        return Err(RecordError::ManifestMismatch {
+            claimed: manifest.frames_written,
+            actual: venue_frames,
+        });
+    }
+    let (references, reference_frames) = load_references(reference)?;
+    if reference_frames != reference_manifest.frames_written {
+        return Err(RecordError::ManifestMismatch {
+            claimed: reference_manifest.frames_written,
+            actual: reference_frames,
+        });
+    }
 
     let bootstrap = match snapshot {
         Some(path) => Some(load_snapshot(path)?),
@@ -118,13 +134,15 @@ pub fn compare_streams(
     Ok(report)
 }
 
-fn load_events(input: &Path) -> Result<Vec<(UpdateSpan, BookDiff)>, RecordError> {
+fn load_events(input: &Path) -> Result<(Vec<(UpdateSpan, BookDiff)>, u64), RecordError> {
     let mut events = Vec::new();
+    let mut venue_frames = 0u64;
 
     for record in store::read_all(&input.join(FRAMES_DIR))? {
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
             continue;
         }
+        venue_frames += 1;
         let (Some(span), Some(diff)) = (
             feed::update_span(record.instrument.venue(), record.channel, &record.payload),
             feed::book_diff(record.instrument.venue(), record.channel, &record.payload),
@@ -134,7 +152,7 @@ fn load_events(input: &Path) -> Result<Vec<(UpdateSpan, BookDiff)>, RecordError>
         events.push((span, diff));
     }
 
-    Ok(events)
+    Ok((events, venue_frames))
 }
 
 fn format_levels(levels: &[astra_book::Level]) -> String {
@@ -156,13 +174,15 @@ fn load_snapshot(path: &Path) -> Result<BookSnapshot, RecordError> {
     .ok_or_else(|| RecordError::Snapshot(path.display().to_string()))
 }
 
-fn load_references(reference: &Path) -> Result<Vec<BookSnapshot>, RecordError> {
+fn load_references(reference: &Path) -> Result<(Vec<BookSnapshot>, u64), RecordError> {
     let mut snapshots = Vec::new();
+    let mut venue_frames = 0u64;
 
     for record in store::read_all(&reference.join(FRAMES_DIR))? {
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
             continue;
         }
+        venue_frames += 1;
         if let Some(snapshot) =
             feed::book_snapshot(record.instrument.venue(), record.channel, &record.payload)
         {
@@ -172,7 +192,7 @@ fn load_references(reference: &Path) -> Result<Vec<BookSnapshot>, RecordError> {
 
     snapshots.sort_by_key(|snapshot| snapshot.last_update_id);
 
-    Ok(snapshots)
+    Ok((snapshots, venue_frames))
 }
 
 /// Render the comparison report exactly as the CLI prints it.
@@ -336,6 +356,87 @@ mod tests {
         let report = compare_streams(&[], &[], 10, None).unwrap();
         assert_eq!(report.checked, 0);
         assert_eq!(report.bootstrap_frames, 0);
+    }
+
+    #[test]
+    fn doctored_manifests_fail_the_comparison() {
+        let input =
+            std::env::temp_dir().join(format!("astra-compare-input-{}", std::process::id()));
+        let reference =
+            std::env::temp_dir().join(format!("astra-compare-reference-{}", std::process::id()));
+        for dir in [&input, &reference] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        let instrument = astra_types::Instrument::new(
+            astra_types::Venue::Binance,
+            astra_types::MarketType::Spot,
+            astra_types::Symbol::new("BTC/USDT").unwrap(),
+        );
+        let write = |dir: &std::path::Path,
+                     channel: astra_types::Channel,
+                     payload: &[u8]|
+         -> Result<(), crate::error::RecordError> {
+            std::fs::create_dir_all(dir.join(crate::capture::FRAMES_DIR))?;
+            let mut writer =
+                crate::store::ChunkWriter::open(dir.join(crate::capture::FRAMES_DIR), 100)?;
+            writer.append(&astra_types::CaptureRecord {
+                seq: 0,
+                instrument: instrument.clone(),
+                channel,
+                ts_socket: astra_types::Timestamp::from_unix_nanos(0),
+                ts_exchange: None,
+                payload: payload.to_vec(),
+                flags: astra_types::CaptureFlags::NONE,
+            })?;
+            writer.finish()?;
+            crate::capture::write_manifest(
+                dir,
+                &astra_types::CaptureManifest {
+                    schema_version: astra_types::SCHEMA_VERSION,
+                    capture_id: astra_types::CaptureId::new("compare-test"),
+                    created_at: astra_types::Timestamp::from_unix_nanos(0),
+                    instrument: instrument.clone(),
+                    channel,
+                    frames_written: 1,
+                    stop_reason: None,
+                },
+            )?;
+            Ok(())
+        };
+        write(
+            &input,
+            astra_types::Channel::BookDiff,
+            br#"{"e":"depthUpdate","s":"BTCUSDT","U":100,"u":105,"b":[],"a":[]}"#,
+        )
+        .unwrap();
+        write(
+            &reference,
+            astra_types::Channel::BookSnapshot,
+            br#"{"lastUpdateId":200,"bids":[],"asks":[]}"#,
+        )
+        .unwrap();
+
+        assert!(compare(&input, &reference, 10, None).is_ok());
+
+        for dir in [&input, &reference] {
+            let path = dir.join(crate::capture::MANIFEST_FILE);
+            let body = std::fs::read_to_string(&path).unwrap();
+            let mut manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+            manifest["frames_written"] = serde_json::json!(99);
+            std::fs::write(&path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+            assert!(matches!(
+                compare(&input, &reference, 10, None),
+                Err(crate::error::RecordError::ManifestMismatch { .. })
+            ));
+
+            // Restore before tampering the other side.
+            manifest["frames_written"] = serde_json::json!(1);
+            std::fs::write(&path, serde_json::to_string(&manifest).unwrap()).unwrap();
+        }
+
+        let _ = std::fs::remove_dir_all(&input);
+        let _ = std::fs::remove_dir_all(&reference);
     }
 
     #[test]

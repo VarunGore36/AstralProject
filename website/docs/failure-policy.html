@@ -78,7 +78,7 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <td>n/a (writes it)</td>
 <td>finding (<code>manifest_mismatch</code>)</td>
 <td>abort (<code>ManifestMismatch</code>)</td>
-<td><strong>ignored</strong> (never opens the manifest)</td>
+<td>abort (<code>ManifestMismatch</code>)</td>
 <td>abort</td>
 <td>abort</td>
 </tr>
@@ -87,7 +87,7 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <td>n/a (writes current)</td>
 <td>abort (<code>SchemaVersion</code>)</td>
 <td>abort</td>
-<td><strong>ignored</strong></td>
+<td>abort</td>
 <td>abort</td>
 <td>abort</td>
 </tr>
@@ -159,9 +159,8 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <h2 id="rules-for-changing-this-table">Rules for changing this table</h2>
 <ol>
 <li>Unify toward fail-loud for corruption (abort or unhealthy), never toward
-   silent skipping. The <code>compare</code> manifest-blindness and the
-   <code>reconstruct</code> synthetic-skip are the two divergences that most deserve
-   removal.</li>
+   silent skipping. The <code>reconstruct</code> synthetic-skip is the divergence that
+   most deserves removal next.</li>
 <li>The null-row vs skip divergence (normalize keeps, replay skips) stands
    until normalized-replay exists to need one answer.</li>
 <li>Any behavior change here updates this table, the subcommand's golden

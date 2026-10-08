@@ -13,8 +13,8 @@ null-field Parquet row · **passthrough** = surfaced to the caller unchanged.
 | Corruption | `capture` (write) | `check` | `reconstruct` | `verify`/`compare` | `normalize` | `replay` / `exec probe` |
 |---|---|---|---|---|---|---|
 | Chunk fails SHA-256 | n/a (writes it) | abort (`Integrity`) | abort | abort | abort | abort |
-| Manifest count disagrees with chunks | n/a (writes it) | finding (`manifest_mismatch`) | abort (`ManifestMismatch`) | **ignored** (never opens the manifest) | abort | abort |
-| Manifest declares a newer schema | n/a (writes current) | abort (`SchemaVersion`) | abort | **ignored** | abort | abort |
+| Manifest count disagrees with chunks | n/a (writes it) | finding (`manifest_mismatch`) | abort (`ManifestMismatch`) | abort (`ManifestMismatch`) | abort | abort |
+| Manifest declares a newer schema | n/a (writes current) | abort (`SchemaVersion`) | abort | abort | abort | abort |
 | Undecodable gap-marker payload | n/a (writes valid ones) | finding (`undecodable_gaps`) | **skipped silently** (synthetic records bypass parsing) | **skipped silently** | abort | abort (`Malformed`) |
 | Unparseable venue frame | stored verbatim, unchecked | skip (`unchecked`, stays healthy alone) | skip (`frames_without_a_book`) | skip, uncounted | null-row | skip (`skipped_unparseable`) |
 | Update-ID discontinuity | gap record, stream continues | finding | book breaks until a new snapshot | rejected events counted | rows as-is (continuity is the capture layer's job) | gap event passthrough |
@@ -26,9 +26,8 @@ null-field Parquet row · **passthrough** = surfaced to the caller unchanged.
 ## Rules for changing this table
 
 1. Unify toward fail-loud for corruption (abort or unhealthy), never toward
-   silent skipping. The `compare` manifest-blindness and the
-   `reconstruct` synthetic-skip are the two divergences that most deserve
-   removal.
+   silent skipping. The `reconstruct` synthetic-skip is the divergence that
+   most deserves removal next.
 2. The null-row vs skip divergence (normalize keeps, replay skips) stands
    until normalized-replay exists to need one answer.
 3. Any behavior change here updates this table, the subcommand's golden
