@@ -1047,7 +1047,7 @@ mod tests {
     use super::*;
     use arrow::array::Array;
     use astra_types::{
-        CaptureId, CaptureRecord, Channel, Instrument, MarketType, Symbol, Timestamp, Venue,
+        CaptureId, CaptureRecord, Channel, Fixed, Instrument, MarketType, Symbol, Timestamp, Venue,
     };
 
     fn parquet_files(output: &Path) -> Vec<PathBuf> {
@@ -1572,6 +1572,18 @@ mod tests {
 
         std::fs::remove_dir_all(&input).unwrap();
         let _ = std::fs::remove_dir_all(&output);
+    }
+
+    #[test]
+    fn decimal_precision_bound_is_exactly_ten_to_the_twenty() {
+        // This constant was once written with 29 digits. Pin it: Decimal128
+        // (20, 8) holds 10^20 - 1 unscaled, and the boundary price just below
+        // must parse while just above must not fit.
+        assert_eq!(DECIMAL_MAX_RAW, 10i128.pow(20) - 1);
+        let just_fits: Fixed = "999999999999.99999999".parse().unwrap();
+        assert_eq!(just_fits.raw(), DECIMAL_MAX_RAW);
+        let too_big: Fixed = "1000000000000.00000000".parse().unwrap();
+        assert!(too_big.raw() > DECIMAL_MAX_RAW);
     }
 
     #[test]

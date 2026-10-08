@@ -80,8 +80,8 @@ pub enum OrderOutcome {
 pub enum ExecError {
     #[error("invalid order (price and quantity must be positive): {0}")]
     InvalidOrder(String),
-    #[error("fee arithmetic overflowed")]
-    FeeOverflow,
+    #[error("fixed-point arithmetic overflowed")]
+    ArithmeticOverflow,
 }
 
 /// Simulate one resting limit order over a print stream.
@@ -123,7 +123,7 @@ pub fn simulate(
                     let notional = order
                         .price
                         .checked_mul(order.quantity)
-                        .ok_or(ExecError::FeeOverflow)?;
+                        .ok_or(ExecError::ArithmeticOverflow)?;
                     return Ok(OrderOutcome::Filled {
                         fill_price: order.price,
                         fee: maker_fee(notional, fee_bps)?,
@@ -147,10 +147,12 @@ fn maker_fee(notional: Fixed, fee_bps: u32) -> Result<Fixed, ExecError> {
     let scaled = notional
         .raw()
         .checked_mul(fee_bps as i128)
-        .ok_or(ExecError::FeeOverflow)?;
+        .ok_or(ExecError::ArithmeticOverflow)?;
     let quotient = scaled / BPS_DENOMINATOR;
     let bump = i128::from((scaled % BPS_DENOMINATOR).abs() >= BPS_DENOMINATOR / 2);
-    let raw = quotient.checked_add(bump).ok_or(ExecError::FeeOverflow)?;
+    let raw = quotient
+        .checked_add(bump)
+        .ok_or(ExecError::ArithmeticOverflow)?;
     Ok(Fixed::from_raw(raw))
 }
 
