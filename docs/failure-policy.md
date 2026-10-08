@@ -18,7 +18,7 @@ null-field Parquet row · **passthrough** = surfaced to the caller unchanged.
 | Undecodable gap-marker payload | n/a (writes valid ones) | finding (`undecodable_gaps`) | **skipped silently** (synthetic records bypass parsing) | **skipped silently** | abort | abort (`Malformed`) |
 | Unparseable venue frame | stored verbatim, unchecked | skip (`unchecked`, stays healthy alone) | skip (`frames_without_a_book`) | skip, uncounted | null-row | skip (`skipped_unparseable`) |
 | Update-ID discontinuity | gap record, stream continues | finding | book breaks until a new snapshot | rejected events counted | rows as-is (continuity is the capture layer's job) | gap event passthrough |
-| Sequence break (`seq` jumps) | impossible (writer assigns `seq`) | finding | **not checked** | **not checked** | duplicate `seq` rejected | **not checked** (trusts order) |
+| Sequence break (`seq` jumps) | impossible (writer assigns `seq`) | finding | **counted** (`seq_breaks`) | **not checked** | duplicate `seq` rejected | **not checked** (trusts order) |
 | Duplicate update spans | gap record (strict equality) | **not detected** (forward jumps only) | applied twice, harmlessly (set semantics) | applied twice | accepted if `seq` differs | emitted twice |
 | Half-written capture (`in_progress`, stale counts) | n/a | finding via count mismatch | abort via count mismatch | proceeds on whatever frames exist | abort via count mismatch | abort via count mismatch |
 | Final disconnect, no trailing gap | stop reason only (correct: nothing follows) | nothing to find (read the manifest) | nothing to reconstruct past | n/a | n/a | n/a |

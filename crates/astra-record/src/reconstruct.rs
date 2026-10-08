@@ -19,18 +19,18 @@ pub struct ReconstructionSummary {
     pub skipped_before_snapshot: u64,
     pub gaps: u64,
     pub rejected_after_gap: u64,
-    /// Connection-type gap markers (reconnects). Sequence-type gaps surface
-    /// through the reconstructor's own discontinuity check instead, so they
-    /// are not double-counted here. (A reconnect whose fresh spans also jump
-    /// the venue sequence counts in both this and `gaps` — once for the
-    /// capture event, once for the book impact. That overlap is honest;
-    /// merging them would hide which happened.)
+    /// Connection-type gap markers. Sequence-type gaps surface through the
+    /// reconstructor instead (see `gaps`); a reconnect whose fresh spans also
+    /// jump counts in both, once per cause.
     pub connection_gaps: u64,
     /// Synthetic records no parser understands. Counted, not hidden.
     pub undecodable_gaps: u64,
     pub snapshot_loaded: Option<u64>,
     pub inband_snapshots: u64,
     pub first_error: Option<BookError>,
+    /// Records whose `seq` is not exactly one past the previous record.
+    /// A scrambled capture rebuilds the wrong book silently without this.
+    pub seq_breaks: u64,
     pub book: OrderBook,
 }
 
@@ -44,6 +44,7 @@ pub fn reconstruct(
     let manifest = crate::check::read_manifest(input)?;
     let mut summary = ReconstructionSummary::default();
     let mut reconstructor = Reconstructor::new();
+    let mut expected_seq = 0u64;
 
     if let Some(path) = snapshot {
         let loaded = load_snapshot(path)?;
@@ -53,6 +54,13 @@ pub fn reconstruct(
 
     for record in store::read_all(&input.join(FRAMES_DIR))? {
         summary.records += 1;
+        if record.seq != expected_seq {
+            summary.seq_breaks += 1;
+        }
+        // Wrapping, not checked: at u64::MAX no successor is representable,
+        // and any following record mismatches anyway. See the checked_add
+        // guards on update IDs for the case that actually matters.
+        expected_seq = record.seq.wrapping_add(1);
 
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
             summary.synthetic_records += 1;
@@ -152,6 +160,7 @@ pub fn format_summary(
     let _ = writeln!(out, "venue       {}", summary.venue_frames);
     let _ = writeln!(out, "synthetic   {}", summary.synthetic_records);
     let _ = writeln!(out, "applied     {}", summary.diffs_applied);
+    let _ = writeln!(out, "seq_breaks  {}", summary.seq_breaks);
     let _ = writeln!(out, "unchecked   {}", summary.frames_without_a_book);
     let _ = writeln!(out, "invalid     {}", summary.invalid_diffs);
     let _ = writeln!(out, "skipped     {}", summary.skipped_before_snapshot);
@@ -488,6 +497,45 @@ mod tests {
     }
 
     #[test]
+    fn scrambled_sequences_are_counted_not_silently_rebuilt() {
+        let output = temp_directory("scrambled");
+        std::fs::create_dir_all(output.join(FRAMES_DIR)).unwrap();
+        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        for seq in [0u64, 1, 5] {
+            writer
+                .append(&CaptureRecord {
+                    seq,
+                    instrument: instrument(),
+                    channel: Channel::BookDiff,
+                    ts_socket: Timestamp::from_unix_nanos(seq as i64),
+                    ts_exchange: None,
+                    payload: real_frame(),
+                    flags: CaptureFlags::NONE,
+                })
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let manifest = CaptureManifest {
+            schema_version: SCHEMA_VERSION,
+            capture_id: CaptureId::new("reconstruct-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: instrument(),
+            channel: Channel::BookDiff,
+            frames_written: 3,
+            stop_reason: None,
+        };
+        crate::capture::write_manifest(&output, &manifest).unwrap();
+
+        let summary = reconstruct(&output, None).unwrap();
+
+        assert_eq!(summary.venue_frames, 3);
+        assert_eq!(summary.seq_breaks, 1);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
     fn the_summary_format_is_pinned_line_by_line() {
         let summary = ReconstructionSummary {
             records: 601,
@@ -502,6 +550,7 @@ mod tests {
             "records     601",
             "venue       601",
             "applied     601",
+            "seq_breaks  0",
             "best bid    none",
             "best ask    none",
             "crossed     false",
