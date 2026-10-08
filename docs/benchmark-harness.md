@@ -9,7 +9,7 @@ notes, external reproductions) points at the artifact defined here.
 One command turning a capture plus a config into a **hashed report**:
 
 ```sh
-astra-harness --input ./capture --config ./bench.json --output ./report.json
+astra-harness run --input ./capture --config ./bench.json --output ./report.json
 ```
 
 ```text
@@ -83,6 +83,22 @@ fill fields absent, not null.
 - Git commit is recorded *alongside* the report by the operator (runbook),
   not inside it: binaries cannot reliably know their own commit.
 
+## Registry (local experiment log)
+
+```sh
+astra-harness run --input ./capture --config ./bench.json --output ./report.json --record ./experiments
+astra-harness list --registry ./experiments
+astra-harness verify --registry ./experiments --hash <report_hash> --input ./capture
+# verdict     reproduced
+```
+
+`record` stores the report plus its config under
+`<registry>/<report_hash>/` — content-addressed, so re-recording is a
+no-op. `list` shows every run (hash, probes, fills, seed, capture).
+`verify` re-runs the stored config against a capture directory and compares
+hashes: exact match or `MISMATCH`, nothing in between. Unknown hashes fail
+loudly; an empty directory lists as empty, not as an error.
+
 ## Acceptance
 
 - Two runs over one capture + config → byte-identical files (asserted in CI
@@ -95,6 +111,5 @@ fill fields absent, not null.
 ## Open questions (deliberately undecided)
 
 - More strategies (needs the strategy SDK question answered first).
-- A registry that stores reports and links them to configs (next layer up).
 - CSV/human summaries next to the canonical JSON (never instead of it).
 - Whether `strategy` stays a name or becomes a WASM/plugin boundary.

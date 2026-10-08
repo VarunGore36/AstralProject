@@ -182,7 +182,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` + `trade` + `top_of_book`) |
 | `crates/astra-replay` | Deterministic replay: event core (`book_diff` + `trade` + `top_of_book`), `book-top` strategy, CLI |
 | `crates/astra-exec` | Conservative fills: limit-maker simulation over trade prints, required fee tier, plus a probe CLI (`exec-v1`) |
-| `crates/astra-harness` | Benchmark harness: one replay pass + N probes → canonical hashed JSON report (`bench-v1`) |
+| `crates/astra-harness` | Benchmark harness (`bench-v1`): one replay pass + N probes → canonical hashed report, plus a local registry (`run --record`, `list`, `verify` with reproduction verdicts) |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables, implemented for `book_diff`, `trade`, `top_of_book` |
 | `docs/replay-design.md` | The v1 contract for the deterministic replay engine, implemented in `astra-replay` |
 | `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
@@ -698,6 +698,7 @@ which equality broke).
 | Parquet decimal range gate | hostile 13-digit values parse as `Fixed` but never fit `Decimal128(20,8)`; all three validators now reject out-of-range batches whole (TDD: test failed first, then the fix) | GATED |
 | Corrupt prints never fill | non-positive trade prints are skipped by `exec-v1` (a fill needs a real counterparty at a real price); regression test with negative and zero prints | GUARDED |
 | Benchmark harness determinism | same capture + config run twice → byte-identical reports; tampered manifest refused with no report written; unknown fields, strategies, and versions refused; golden report-shape test | VERIFIED (fixture; live multi-channel run open) |
+| Registry roundtrip | record → list → verify over fixture captures: idempotent re-record, single listing, exact reproduction, mismatch on different outcomes, loud refusal of unknown hashes, empty dir lists empty; `verdict reproduced` demoed live | VERIFIED (fixture + live CLI) |
 | Reconstruct gated like every reader | `reconstruct` verifies schema version and manifest frame count before rebuilding, failing loud on foreign or half-written captures | GATED |
 | Trade sides fail closed | Bybit/Coinbase side labels canonicalize to Buy/Sell; anything else stores as unknown (`None`) with the print preserved, never verbatim | HARDENED |
 | Reconstruct counts connection gaps | gap markers classified on the walk: connection-type counted, sequence-type left to the reconstructor's own break, undecodable surfaced; overlap behavior documented in code | COUNTED |

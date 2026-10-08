@@ -9,7 +9,7 @@
 //!
 //! See `docs/benchmark-harness.md` for the full contract.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use astra_exec::{LimitOrder, OrderOutcome, Side, TradeCollector, simulate};
 use astra_replay::{BookTop, Context};
@@ -243,6 +243,92 @@ fn read_capture_id(input: &Path) -> Result<(String, u64), HarnessError> {
         .and_then(|value| value.as_u64())
         .ok_or_else(|| HarnessError::Config("manifest has no frames_written".to_owned()))?;
     Ok((capture_id, frames))
+}
+
+/// One registry entry: what is listed and what verification compares.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunSummary {
+    pub hash: String,
+    pub capture_id: String,
+    pub seed: u64,
+    pub probes: u64,
+    pub fills: u64,
+}
+
+/// Record a run: store its report plus the config that produced it under
+/// `<registry>/<report_hash>/`. Content-addressed, so re-recording the same
+/// run is a no-op and history can never fork.
+pub fn record_run(
+    registry: &Path,
+    config_json: &str,
+    run: &BenchmarkRun,
+) -> Result<PathBuf, HarnessError> {
+    let dir = registry.join(&run.hash);
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("report.json"), &run.bytes)?;
+    std::fs::write(dir.join("config.json"), config_json)?;
+    Ok(dir)
+}
+
+/// List every recorded run, sorted by hash for stable output.
+pub fn list_runs(registry: &Path) -> Result<Vec<RunSummary>, HarnessError> {
+    let mut runs = Vec::new();
+    let entries = match std::fs::read_dir(registry) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(runs),
+        Err(error) => return Err(HarnessError::Io(error)),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let report_path = entry.path().join("report.json");
+        if !report_path.is_file() {
+            continue;
+        }
+        let body = std::fs::read_to_string(&report_path)?;
+        let report: serde_json::Value =
+            serde_json::from_str(&body).map_err(HarnessError::Report)?;
+        let get_str = |key: &str| {
+            report
+                .get(key)
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let get_u64 = |key: &str| {
+            report
+                .get(key)
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0)
+        };
+        let probe_list = report.get("probes").and_then(|value| value.as_array());
+        runs.push(RunSummary {
+            hash: entry.file_name().to_str().unwrap_or_default().to_owned(),
+            capture_id: get_str("capture_id"),
+            seed: get_u64("seed"),
+            probes: probe_list.map(|probes| probes.len() as u64).unwrap_or(0),
+            fills: probe_list
+                .map(|probes| {
+                    probes
+                        .iter()
+                        .filter(|probe| {
+                            probe.get("result").and_then(|r| r.as_str()) == Some("filled")
+                        })
+                        .count() as u64
+                })
+                .unwrap_or(0),
+        });
+    }
+    runs.sort_by(|a, b| a.hash.cmp(&b.hash));
+    Ok(runs)
+}
+
+/// Reproduce a recorded run: re-execute its stored config against `input`
+/// and compare hashes. Returns true on exact reproduction.
+pub fn verify_run(registry: &Path, hash: &str, input: &Path) -> Result<bool, HarnessError> {
+    let dir = registry.join(hash);
+    let config = std::fs::read_to_string(dir.join("config.json"))?;
+    let run = run_benchmark(input, &config)?;
+    Ok(run.hash == hash)
 }
 
 #[cfg(test)]

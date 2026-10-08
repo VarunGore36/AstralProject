@@ -48,7 +48,7 @@ The missing keystone: everything downstream (registry entries, research
 notes, external reproductions) points at the artifact defined here.</p>
 <h2 id="what-it-is">What it is</h2>
 <p>One command turning a capture plus a config into a <strong>hashed report</strong>:</p>
-<pre><code class="language-sh">astra-harness --input ./capture --config ./bench.json --output ./report.json
+<pre><code class="language-sh">astra-harness run --input ./capture --config ./bench.json --output ./report.json
 </code></pre>
 <pre><code class="language-text">input       ./capture
 config      ./bench.json
@@ -112,6 +112,18 @@ fill fields absent, not null.</p>
 <li>Git commit is recorded <em>alongside</em> the report by the operator (runbook),
   not inside it: binaries cannot reliably know their own commit.</li>
 </ul>
+<h2 id="registry-local-experiment-log">Registry (local experiment log)</h2>
+<pre><code class="language-sh">astra-harness run --input ./capture --config ./bench.json --output ./report.json --record ./experiments
+astra-harness list --registry ./experiments
+astra-harness verify --registry ./experiments --hash &lt;report_hash&gt; --input ./capture
+# verdict     reproduced
+</code></pre>
+<p><code>record</code> stores the report plus its config under
+<code>&lt;registry&gt;/&lt;report_hash&gt;/</code> — content-addressed, so re-recording is a
+no-op. <code>list</code> shows every run (hash, probes, fills, seed, capture).
+<code>verify</code> re-runs the stored config against a capture directory and compares
+hashes: exact match or <code>MISMATCH</code>, nothing in between. Unknown hashes fail
+loudly; an empty directory lists as empty, not as an error.</p>
 <h2 id="acceptance">Acceptance</h2>
 <ul>
 <li>Two runs over one capture + config → byte-identical files (asserted in CI
@@ -124,7 +136,6 @@ fill fields absent, not null.</p>
 <h2 id="open-questions-deliberately-undecided">Open questions (deliberately undecided)</h2>
 <ul>
 <li>More strategies (needs the strategy SDK question answered first).</li>
-<li>A registry that stores reports and links them to configs (next layer up).</li>
 <li>CSV/human summaries next to the canonical JSON (never instead of it).</li>
 <li>Whether <code>strategy</code> stays a name or becomes a WASM/plugin boundary.</li>
 </ul>

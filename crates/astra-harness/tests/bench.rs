@@ -51,11 +51,14 @@ fn trade_frame(seq: u64, trade_id: u64, price: &str) -> CaptureRecord {
 }
 
 fn write_capture(dir: &Path) {
-    let records = vec![
-        book_frame(0),
-        trade_frame(1, 1, "101.00000000"),
-        trade_frame(2, 2, "99.00000000"),
-    ];
+    write_capture_priced(dir, &["101.00000000", "99.00000000"]);
+}
+
+fn write_capture_priced(dir: &Path, prices: &[&str]) {
+    let mut records = vec![book_frame(0)];
+    for (index, price) in prices.iter().enumerate() {
+        records.push(trade_frame(index as u64 + 1, index as u64 + 1, price));
+    }
     std::fs::create_dir_all(dir.join(FRAMES_DIR)).unwrap();
     let mut writer = ChunkWriter::open(dir.join(FRAMES_DIR), 100).unwrap();
     for record in &records {
@@ -128,4 +131,47 @@ fn a_torn_manifest_refuses_the_run() {
     assert!(!dir.join("report.json").exists());
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn record_list_verify_roundtrip() {
+    use astra_harness::{list_runs, record_run, verify_run};
+
+    let dir = temp_directory("registry");
+    let registry = temp_directory("registry-store");
+    write_capture(&dir);
+
+    let run = run_benchmark(&dir, CONFIG).unwrap();
+    let stored = record_run(&registry, CONFIG, &run).unwrap();
+    assert!(stored.join("report.json").is_file());
+    assert!(stored.join("config.json").is_file());
+
+    // Re-recording is idempotent: same hash, still one entry.
+    record_run(&registry, CONFIG, &run).unwrap();
+    let runs = list_runs(&registry).unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].hash, run.hash);
+    assert_eq!(runs[0].probes, 2);
+    assert_eq!(runs[0].fills, 1);
+
+    // Same bytes reproduce; different outcomes do not. (Note: merely
+    // different prints with identical outcomes verify true — correctly, a
+    // report covers outcomes, not bytes.)
+    assert!(verify_run(&registry, &run.hash, &dir).unwrap());
+    let other = temp_directory("registry-other");
+    write_capture_priced(&other, &["101.00000000", "102.00000000"]);
+    assert!(!verify_run(&registry, &run.hash, &other).unwrap());
+
+    // Unknown hashes fail loudly, not silently.
+    assert!(verify_run(&registry, &"0".repeat(64), &dir).is_err());
+    // An empty directory is an empty registry, not an error.
+    assert!(
+        list_runs(&temp_directory("registry-empty"))
+            .unwrap()
+            .is_empty()
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&other).unwrap();
+    std::fs::remove_dir_all(&registry).unwrap();
 }
