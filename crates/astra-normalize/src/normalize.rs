@@ -1546,6 +1546,35 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_trade_bundle_yields_zero_rows_not_a_null_row() {
+        // A transport message with zero prints holds zero market events, so
+        // it normalizes to nothing — unlike garbage bytes, which keep a null
+        // placeholder row to preserve seq accounting. Pinned, since replay
+        // counts the same frame as skipped_unparseable (see failure policy).
+        let input = temp_directory("empty-bundle");
+        let output = temp_directory("empty-bundle-out");
+        write_capture(
+            &input,
+            vec![record_as(
+                0,
+                &bybit_instrument(),
+                Channel::Trade,
+                1_700_000_000_000_000_000,
+                br#"{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304486868,"data":[]}"#.to_vec(),
+            )],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+
+        assert_eq!(summary.rows_written, 0);
+        assert_eq!(summary.skipped_unsupported_channel, 0);
+        assert!(parquet_files(&output).is_empty());
+
+        std::fs::remove_dir_all(&input).unwrap();
+        let _ = std::fs::remove_dir_all(&output);
+    }
+
+    #[test]
     fn rows_group_into_date_partitions() {
         let input = temp_directory("dates");
         let output = temp_directory("dates-out");

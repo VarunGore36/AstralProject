@@ -17,6 +17,7 @@ null-field Parquet row · **passthrough** = surfaced to the caller unchanged.
 | Manifest declares a newer schema | n/a (writes current) | abort (`SchemaVersion`) | abort | abort | abort | abort |
 | Undecodable gap-marker payload | n/a (writes valid ones) | finding (`undecodable_gaps`) | **skipped silently** (synthetic records bypass parsing) | **skipped silently** | abort | abort (`Malformed`) |
 | Unparseable venue frame | stored verbatim, unchecked | skip (`unchecked`, stays healthy alone) | skip (`frames_without_a_book`) | skip, uncounted | null-row | skip (`skipped_unparseable`) |
+| Empty trade bundle (zero prints) | stored verbatim, unchecked | skip (`unchecked`) | skip (`frames_without_a_book`) | skip, uncounted | **zero rows** (no events, nothing to placeholder) | skip (`skipped_unparseable`) |
 | Update-ID discontinuity | gap record, stream continues | finding | book breaks until a new snapshot | rejected events counted | rows as-is (continuity is the capture layer's job) | gap event passthrough |
 | Sequence break (`seq` jumps) | impossible (writer assigns `seq`) | finding | **counted** (`seq_breaks`) | **not checked** | duplicate `seq` rejected | **not checked** (trusts order) |
 | Duplicate update spans | gap record (strict equality) | **not detected** (forward jumps only) | applied twice, harmlessly (set semantics) | applied twice | accepted if `seq` differs | emitted twice |

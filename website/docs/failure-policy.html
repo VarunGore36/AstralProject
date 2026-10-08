@@ -110,6 +110,15 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <td>skip (<code>skipped_unparseable</code>)</td>
 </tr>
 <tr>
+<td>Empty trade bundle (zero prints)</td>
+<td>stored verbatim, unchecked</td>
+<td>skip (<code>unchecked</code>)</td>
+<td>skip (<code>frames_without_a_book</code>)</td>
+<td>skip, uncounted</td>
+<td><strong>zero rows</strong> (no events, nothing to placeholder)</td>
+<td>skip (<code>skipped_unparseable</code>)</td>
+</tr>
+<tr>
 <td>Update-ID discontinuity</td>
 <td>gap record, stream continues</td>
 <td>finding</td>

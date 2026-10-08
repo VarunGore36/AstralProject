@@ -708,6 +708,7 @@ which equality broke).
 | Harness CLI formats pinned | `run`, `list`, and `verify` reports render through golden-tested lib functions; live output verified byte-identical after the move | PINNED |
 | Live ritual 2026-10-08 | fresh 600-frame Binance capture: normalized twice → byte-identical Parquet; replayed 10× under one seed → one unique signal hash; a first-pass content-hash recipe mismatched on filenames and was corrected to contents-only | VERIFIED |
 | Soak-scale memory profile | synthetic 300k-frame capture: `check` ~10 MB (streams), `replay` ~130 MB, `normalize` ~340 MB peak RSS (debug, small payloads — a floor); full-soak judging needs GB or streaming; recorded in the runbook | MEASURED |
+| Empty-bundle rule pinned | a zero-print trade bundle normalizes to zero rows (nothing to placeholder) while replay counts it skipped; garbage keeps a null row; regression test plus policy-table row | PINNED |
 | Reconstruct gated like every reader | `reconstruct` verifies schema version and manifest frame count before rebuilding, failing loud on foreign or half-written captures | GATED |
 | Trade sides fail closed | Bybit/Coinbase side labels canonicalize to Buy/Sell; anything else stores as unknown (`None`) with the print preserved, never verbatim | HARDENED |
 | Reconstruct counts connection gaps | gap markers classified on the walk: connection-type counted, sequence-type left to the reconstructor's own break, undecodable surfaced; overlap behavior documented in code | COUNTED |
