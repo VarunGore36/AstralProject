@@ -65,6 +65,25 @@ Then walk away. `nohup` + ` disown`-style backgrounding survives SSH drops;
 do not run it under a laptop-tethered `ssh` session without `nohup` (the
 script already handles that).
 
+## Memory: size the judging box before the soak
+
+Measured 2026-10-08 on a synthetic 300,000-frame capture (150 chunks),
+debug build, small payloads — treat as a floor, not a ceiling (release
+builds use less; real venue payloads are ~5–10x bigger):
+
+| Command | Peak RSS, 300k frames | Streams? |
+|---|---|---|
+| `check` | ~10 MB | yes, chunk by chunk |
+| `replay` (`book-top`, 300k signals) | ~130 MB | no, loads all |
+| `normalize` (300k rows) | ~340 MB | no, loads all |
+
+Per-100k-frames rule of thumb (same caveats): ~3 MB check, ~45 MB replay,
+~115 MB normalize. A full 72h stream (~2.6M frames at venue rate with real
+payloads) therefore needs single-digit GB for normalize/replay on this
+curve — beyond a 4 GB judging box. Plan one of: judge on a bigger box than
+the recorder, normalize/replay per day-partition, or stream those paths.
+`check` is fine anywhere, including the recorder itself.
+
 ## Supervise (cheaply, not constantly)
 
 ```sh

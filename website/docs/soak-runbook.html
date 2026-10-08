@@ -94,6 +94,42 @@ Bybit spot+perp BTC) for 259,200 seconds with generous reconnects. Record:</p>
 <p>Then walk away. <code>nohup</code> + <code>disown</code>-style backgrounding survives SSH drops;
 do not run it under a laptop-tethered <code>ssh</code> session without <code>nohup</code> (the
 script already handles that).</p>
+<h2 id="memory-size-the-judging-box-before-the-soak">Memory: size the judging box before the soak</h2>
+<p>Measured 2026-10-08 on a synthetic 300,000-frame capture (150 chunks),
+debug build, small payloads — treat as a floor, not a ceiling (release
+builds use less; real venue payloads are ~5–10x bigger):</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Peak RSS, 300k frames</th>
+<th>Streams?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>check</code></td>
+<td>~10 MB</td>
+<td>yes, chunk by chunk</td>
+</tr>
+<tr>
+<td><code>replay</code> (<code>book-top</code>, 300k signals)</td>
+<td>~130 MB</td>
+<td>no, loads all</td>
+</tr>
+<tr>
+<td><code>normalize</code> (300k rows)</td>
+<td>~340 MB</td>
+<td>no, loads all</td>
+</tr>
+</tbody>
+</table>
+<p>Per-100k-frames rule of thumb (same caveats): ~3 MB check, ~45 MB replay,
+~115 MB normalize. A full 72h stream (~2.6M frames at venue rate with real
+payloads) therefore needs single-digit GB for normalize/replay on this
+curve — beyond a 4 GB judging box. Plan one of: judge on a bigger box than
+the recorder, normalize/replay per day-partition, or stream those paths.
+<code>check</code> is fine anywhere, including the recorder itself.</p>
 <h2 id="supervise-cheaply-not-constantly">Supervise (cheaply, not constantly)</h2>
 <pre><code class="language-sh">ops/soak.sh status    # RUNNING vs STOPPED per stream
 ops/soak.sh check     # per-stream verdicts + soak_verdict; non-zero on issues
