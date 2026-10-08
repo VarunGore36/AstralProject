@@ -322,6 +322,62 @@ pub fn list_runs(registry: &Path) -> Result<Vec<RunSummary>, HarnessError> {
     Ok(runs)
 }
 
+/// Render a benchmark run report exactly as the CLI prints it.
+///
+/// Golden-tested with the other report printers.
+pub fn format_run_report(input: &Path, config: &Path, output: &Path, run: &BenchmarkRun) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "input       {}", input.display());
+    let _ = writeln!(out, "config      {}", config.display());
+    let _ = writeln!(out, "probes      {}", run.probes);
+    let _ = writeln!(out, "fills       {}", run.fills);
+    let _ = writeln!(out, "report      {}", output.display());
+    let _ = writeln!(out, "report_hash {}", run.hash);
+
+    out
+}
+
+/// Render a registry listing exactly as the CLI prints it.
+pub fn format_list_report(registry: &Path, runs: &[RunSummary]) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "registry    {}", registry.display());
+    let _ = writeln!(out, "runs        {}", runs.len());
+    for run in runs {
+        let _ = writeln!(
+            out,
+            "run         {} probes={} fills={} seed={} capture={}",
+            run.hash, run.probes, run.fills, run.seed, run.capture_id
+        );
+    }
+
+    out
+}
+
+/// Render a reproduction verdict exactly as the CLI prints it.
+pub fn format_verify_report(registry: &Path, hash: &str, input: &Path, reproduced: bool) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "registry    {}", registry.display());
+    let _ = writeln!(out, "hash        {hash}");
+    let _ = writeln!(out, "input       {}", input.display());
+    let _ = writeln!(
+        out,
+        "verdict     {}",
+        if reproduced {
+            "reproduced"
+        } else {
+            "MISMATCH, see above"
+        }
+    );
+
+    out
+}
+
 /// Reproduce a recorded run: re-execute its stored config against `input`
 /// and compare hashes. Returns true on exact reproduction.
 pub fn verify_run(registry: &Path, hash: &str, input: &Path) -> Result<bool, HarnessError> {
@@ -357,5 +413,64 @@ mod tests {
             run_benchmark(std::path::Path::new("./missing"), config),
             Err(HarnessError::Config(_))
         ));
+    }
+
+    #[test]
+    fn the_report_formats_are_pinned_line_by_line() {
+        let run = BenchmarkRun {
+            bytes: b"{}\n".to_vec(),
+            hash: "9f2c".to_owned(),
+            probes: 2,
+            fills: 1,
+            trades: 10,
+            gaps: 0,
+        };
+        let text = format_run_report(
+            std::path::Path::new("./capture"),
+            std::path::Path::new("./bench.json"),
+            std::path::Path::new("./report.json"),
+            &run,
+        );
+        for line in [
+            "input       ./capture",
+            "config      ./bench.json",
+            "probes      2",
+            "fills       1",
+            "report      ./report.json",
+            "report_hash 9f2c",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
+
+        let runs = vec![RunSummary {
+            hash: "9f2c".to_owned(),
+            capture_id: "bench-test".to_owned(),
+            seed: 7,
+            probes: 2,
+            fills: 1,
+        }];
+        let text = format_list_report(std::path::Path::new("./experiments"), &runs);
+        for line in [
+            "registry    ./experiments",
+            "runs        1",
+            "run         9f2c probes=2 fills=1 seed=7 capture=bench-test",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
+
+        let text = format_verify_report(
+            std::path::Path::new("./experiments"),
+            "9f2c",
+            std::path::Path::new("./capture"),
+            true,
+        );
+        assert!(text.contains("verdict     reproduced"), "{text}");
+        let text = format_verify_report(
+            std::path::Path::new("./experiments"),
+            "9f2c",
+            std::path::Path::new("./capture"),
+            false,
+        );
+        assert!(text.contains("verdict     MISMATCH, see above"), "{text}");
     }
 }

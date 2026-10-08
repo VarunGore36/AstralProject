@@ -704,6 +704,7 @@ which equality broke).
 | Corrupt prints never fill | non-positive trade prints are skipped by `exec-v1` (a fill needs a real counterparty at a real price); regression test with negative and zero prints | GUARDED |
 | Benchmark harness determinism | same capture + config run twice → byte-identical reports; tampered manifest refused with no report written; unknown fields, strategies, and versions refused; golden report-shape test | VERIFIED (fixture; live multi-channel run open) |
 | Registry roundtrip | record → list → verify over fixture captures: idempotent re-record, single listing, exact reproduction, mismatch on different outcomes, loud refusal of unknown hashes, empty dir lists empty; `verdict reproduced` demoed live | VERIFIED (fixture + live CLI) |
+| Harness CLI formats pinned | `run`, `list`, and `verify` reports render through golden-tested lib functions; live output verified byte-identical after the move | PINNED |
 | Reconstruct gated like every reader | `reconstruct` verifies schema version and manifest frame count before rebuilding, failing loud on foreign or half-written captures | GATED |
 | Trade sides fail closed | Bybit/Coinbase side labels canonicalize to Buy/Sell; anything else stores as unknown (`None`) with the print preserved, never verbatim | HARDENED |
 | Reconstruct counts connection gaps | gap markers classified on the walk: connection-type counted, sequence-type left to the reconstructor's own break, undecodable surfaced; overlap behavior documented in code | COUNTED |

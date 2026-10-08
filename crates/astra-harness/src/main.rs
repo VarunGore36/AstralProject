@@ -74,12 +74,10 @@ fn run_benchmark(args: RunArgs) -> Result<(), String> {
         astra_harness::run_benchmark(&args.input, &config).map_err(|error| error.to_string())?;
     std::fs::write(&args.output, &run.bytes).map_err(|error| error.to_string())?;
 
-    println!("input       {}", args.input.display());
-    println!("config      {}", args.config.display());
-    println!("probes      {}", run.probes);
-    println!("fills       {}", run.fills);
-    println!("report      {}", args.output.display());
-    println!("report_hash {}", run.hash);
+    print!(
+        "{}",
+        astra_harness::format_run_report(&args.input, &args.config, &args.output, &run)
+    );
 
     if let Some(registry) = args.record {
         let dir = astra_harness::record_run(&registry, &config, &run)
@@ -93,14 +91,10 @@ fn run_benchmark(args: RunArgs) -> Result<(), String> {
 fn list_registry(args: ListArgs) -> Result<(), String> {
     let runs = astra_harness::list_runs(&args.registry).map_err(|error| error.to_string())?;
 
-    println!("registry    {}", args.registry.display());
-    println!("runs        {}", runs.len());
-    for run in &runs {
-        println!(
-            "run         {} probes={} fills={} seed={} capture={}",
-            run.hash, run.probes, run.fills, run.seed, run.capture_id
-        );
-    }
+    print!(
+        "{}",
+        astra_harness::format_list_report(&args.registry, &runs)
+    );
 
     Ok(())
 }
@@ -109,16 +103,9 @@ fn verify_run(args: VerifyArgs) -> Result<(), String> {
     let reproduced = astra_harness::verify_run(&args.registry, &args.hash, &args.input)
         .map_err(|error| error.to_string())?;
 
-    println!("registry    {}", args.registry.display());
-    println!("hash        {}", args.hash);
-    println!("input       {}", args.input.display());
-    println!(
-        "verdict     {}",
-        if reproduced {
-            "reproduced"
-        } else {
-            "MISMATCH, see above"
-        }
+    print!(
+        "{}",
+        astra_harness::format_verify_report(&args.registry, &args.hash, &args.input, reproduced)
     );
 
     Ok(())
