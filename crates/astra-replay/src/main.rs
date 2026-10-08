@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use astra_replay::{BookTop, replay};
+use astra_replay::{BookTop, TradeTally, replay};
 use clap::{Parser, ValueEnum};
 
 #[derive(Parser)]
@@ -19,6 +19,7 @@ struct Cli {
 #[derive(Clone, Copy, ValueEnum)]
 enum StrategyName {
     BookTop,
+    TradeTally,
 }
 
 fn main() -> ExitCode {
@@ -32,9 +33,17 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<(), astra_replay::ReplayError> {
-    let mut strategy = match cli.strategy {
-        StrategyName::BookTop => BookTop::new(),
-    };
+    match cli.strategy {
+        StrategyName::BookTop => run_with(BookTop::new(), &cli),
+        StrategyName::TradeTally => run_with(TradeTally::new(), &cli),
+    }
+}
+
+fn run_with(
+    strategy: impl astra_replay::Strategy,
+    cli: &Cli,
+) -> Result<(), astra_replay::ReplayError> {
+    let mut strategy = strategy;
     let report = replay(&cli.input, cli.seed, &mut strategy)?;
 
     print!(

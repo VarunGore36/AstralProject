@@ -12,18 +12,13 @@
 use std::path::{Path, PathBuf};
 
 use astra_exec::{LimitOrder, OrderOutcome, Side, TradeCollector, simulate};
-use astra_replay::{BookTop, Context};
+use astra_replay::{BookTop, Context, TradeTally};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 /// Harness version stamped on every report. Bump on any rule change.
 pub const HARNESS_VERSION: &str = "bench-v1";
-
-/// The only replay strategy v1 knows. Unknown names are refused, never
-/// defaulted: a benchmark that runs a different strategy than intended is
-/// worse than one that refuses to run.
-const SUPPORTED_STRATEGY: &str = "book-top";
 
 #[derive(Debug, Error)]
 pub enum HarnessError {
@@ -88,17 +83,46 @@ struct BenchmarkReport {
 }
 
 /// One replay pass driving both the book strategy and the trade collector.
+enum ReplayStrategy {
+    BookTop(BookTop),
+    TradeTally(TradeTally),
+}
+
 struct HarnessStrategy {
-    book: BookTop,
+    strategy: ReplayStrategy,
     trades: TradeCollector,
+}
+
+impl HarnessStrategy {
+    fn for_name(name: &str) -> Result<Self, HarnessError> {
+        let strategy = match name {
+            "book-top" => ReplayStrategy::BookTop(BookTop::new()),
+            "trade-tally" => ReplayStrategy::TradeTally(TradeTally::new()),
+            other => {
+                return Err(HarnessError::Config(format!(
+                    "unsupported strategy {other:?}, this build runs \"book-top\" and \"trade-tally\""
+                )));
+            }
+        };
+        Ok(HarnessStrategy {
+            strategy,
+            trades: TradeCollector::default(),
+        })
+    }
 }
 
 impl astra_replay::Strategy for HarnessStrategy {
     fn on_book_diff(&mut self, event: &astra_replay::BookDiffEvent, ctx: &mut Context) {
-        self.book.on_book_diff(event, ctx);
+        match &mut self.strategy {
+            ReplayStrategy::BookTop(book) => book.on_book_diff(event, ctx),
+            ReplayStrategy::TradeTally(tally) => tally.on_book_diff(event, ctx),
+        }
     }
     fn on_snapshot(&mut self, event: &astra_replay::SnapshotEvent, ctx: &mut Context) {
-        self.book.on_snapshot(event, ctx);
+        match &mut self.strategy {
+            ReplayStrategy::BookTop(book) => book.on_snapshot(event, ctx),
+            ReplayStrategy::TradeTally(tally) => tally.on_snapshot(event, ctx),
+        }
     }
     fn on_trade(&mut self, event: &astra_replay::TradeEvent, ctx: &mut Context) {
         self.trades.on_trade(event, ctx);
@@ -107,11 +131,17 @@ impl astra_replay::Strategy for HarnessStrategy {
         self.trades.on_top_of_book(event, ctx);
     }
     fn on_gap(&mut self, marker: &astra_types::GapMarker, ctx: &mut Context) {
-        self.book.on_gap(marker, ctx);
+        match &mut self.strategy {
+            ReplayStrategy::BookTop(book) => book.on_gap(marker, ctx),
+            ReplayStrategy::TradeTally(tally) => tally.on_gap(marker, ctx),
+        }
         self.trades.on_gap(marker, ctx);
     }
     fn on_end(&mut self, frames: u64, ctx: &mut Context) {
-        self.book.on_end(frames, ctx);
+        match &mut self.strategy {
+            ReplayStrategy::BookTop(book) => book.on_end(frames, ctx),
+            ReplayStrategy::TradeTally(tally) => tally.on_end(frames, ctx),
+        }
         self.trades.on_end(frames, ctx);
     }
 }
@@ -145,17 +175,7 @@ pub fn run_benchmark(input: &Path, config_json: &str) -> Result<BenchmarkRun, Ha
             config.version
         )));
     }
-    if config.strategy != SUPPORTED_STRATEGY {
-        return Err(HarnessError::Config(format!(
-            "unsupported strategy {:?}, this build runs {:?}",
-            config.strategy, SUPPORTED_STRATEGY
-        )));
-    }
-
-    let mut strategy = HarnessStrategy {
-        book: BookTop::new(),
-        trades: TradeCollector::default(),
-    };
+    let mut strategy = HarnessStrategy::for_name(&config.strategy)?;
     let replay_report = astra_replay::replay(input, config.seed, &mut strategy)?;
 
     let mut probes = Vec::with_capacity(config.probes.len());

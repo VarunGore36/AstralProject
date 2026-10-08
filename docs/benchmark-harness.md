@@ -39,7 +39,9 @@ the command and compare one hash.
 ```
 
 - `strategy` names the replay strategy whose signals join the report.
-  v1 supports `book-top` only; unknown names are refused, never defaulted.
+  v1 supports `book-top` (top-of-book per book event) and `trade-tally`
+  (buy/sell/unknown print counts, one summary signal at stream end).
+  Unknown names are refused, never defaulted.
 - Every probe needs an explicit `fee_bps` (same rule as `exec-v1`).
 - Unknown JSON fields are refused (fail-closed parsing): a config that
   means something different than intended must error, not run.
@@ -111,6 +113,7 @@ an empty directory lists as empty, not as an error.
 
 ## Open questions (deliberately undecided)
 
-- More strategies (needs the strategy SDK question answered first).
+- More strategies beyond `book-top` and `trade-tally` (those two prove the
+  dispatch works; a plugin boundary is still open).
 - CSV/human summaries next to the canonical JSON (never instead of it).
 - Whether `strategy` stays a name or becomes a WASM/plugin boundary.

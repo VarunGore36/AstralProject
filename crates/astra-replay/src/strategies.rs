@@ -1,7 +1,7 @@
 use astra_book::Reconstructor;
 use astra_types::GapMarker;
 
-use crate::replay::{BookDiffEvent, Context, SnapshotEvent, Strategy};
+use crate::replay::{BookDiffEvent, Context, SnapshotEvent, Strategy, TradeEvent};
 
 pub struct BookTop {
     book: Reconstructor,
@@ -67,6 +67,60 @@ fn emit_top(book: &Reconstructor, seq: u64, ctx: &mut Context) {
         }
     }
     ctx.emit("top", payload);
+}
+
+/// Counts trade prints by side and emits one summary signal at stream end.
+///
+/// Deliberately gap-insensitive: prints observed are facts, and the tally
+/// reports what arrived — voiding belongs to the fill model, not the
+/// counter. Unknown sides (fail-closed `None` from the parsers) get their
+/// own bucket rather than vanishing.
+#[derive(Default)]
+pub struct TradeTally {
+    buys: u64,
+    sells: u64,
+    unknown: u64,
+}
+
+impl TradeTally {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn buys(&self) -> u64 {
+        self.buys
+    }
+
+    pub fn sells(&self) -> u64 {
+        self.sells
+    }
+
+    pub fn unknown(&self) -> u64 {
+        self.unknown
+    }
+}
+
+impl Strategy for TradeTally {
+    fn on_book_diff(&mut self, _event: &BookDiffEvent, _ctx: &mut Context) {}
+    fn on_snapshot(&mut self, _event: &SnapshotEvent, _ctx: &mut Context) {}
+
+    fn on_trade(&mut self, event: &TradeEvent, _ctx: &mut Context) {
+        match event.trade.side.as_deref() {
+            Some("Buy") => self.buys += 1,
+            Some("Sell") => self.sells += 1,
+            _ => self.unknown += 1,
+        }
+    }
+
+    fn on_gap(&mut self, _marker: &GapMarker, _ctx: &mut Context) {}
+
+    fn on_end(&mut self, _frames: u64, ctx: &mut Context) {
+        let mut payload = Vec::with_capacity(24);
+        payload.extend_from_slice(&self.buys.to_le_bytes());
+        payload.extend_from_slice(&self.sells.to_le_bytes());
+        payload.extend_from_slice(&self.unknown.to_le_bytes());
+        ctx.emit("tally", payload);
+    }
 }
 
 #[cfg(test)]
@@ -150,5 +204,41 @@ mod tests {
         );
 
         assert_eq!(ctx.signals().len(), 1);
+    }
+
+    fn trade_event(seq: u64, side: Option<&str>) -> TradeEvent {
+        TradeEvent {
+            seq,
+            print_index: 0,
+            ts_socket: Timestamp::from_unix_nanos(seq as i64),
+            ts_exchange: None,
+            trade: astra_record::feed::TradePrint {
+                trade_id: None,
+                price: "1.00000000".parse().unwrap(),
+                quantity: "1".parse().unwrap(),
+                side: side.map(|side| side.to_owned()),
+                ts_exchange: None,
+            },
+        }
+    }
+
+    #[test]
+    fn tally_counts_sides_and_emits_once_at_end() {
+        let mut strategy = TradeTally::new();
+        let mut ctx = context();
+
+        strategy.on_trade(&trade_event(0, Some("Buy")), &mut ctx);
+        strategy.on_trade(&trade_event(1, Some("Sell")), &mut ctx);
+        strategy.on_trade(&trade_event(2, Some("Buy")), &mut ctx);
+        strategy.on_trade(&trade_event(3, None), &mut ctx);
+        assert!(ctx.signals().is_empty());
+
+        strategy.on_end(4, &mut ctx);
+
+        assert_eq!(strategy.buys(), 2);
+        assert_eq!(strategy.sells(), 1);
+        assert_eq!(strategy.unknown(), 1);
+        assert_eq!(ctx.signals().len(), 1);
+        assert_eq!(ctx.signals()[0].tag, "tally");
     }
 }

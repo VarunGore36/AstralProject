@@ -175,3 +175,35 @@ fn record_list_verify_roundtrip() {
     std::fs::remove_dir_all(&other).unwrap();
     std::fs::remove_dir_all(&registry).unwrap();
 }
+
+#[test]
+fn trade_tally_strategy_benchmarks_deterministically() {
+    let dir = temp_directory("tally");
+    write_capture(&dir);
+    let config = r#"{"version":1,"seed":7,"strategy":"trade-tally","probes":[
+{"side":"buy","price":"100.00000000","quantity":"1","fee_bps":5}
+]}"#;
+
+    let first = run_benchmark(&dir, config).unwrap();
+    let second = run_benchmark(&dir, config).unwrap();
+
+    assert_eq!(first.bytes, second.bytes);
+    assert_eq!(first.fills, 1);
+    let text = String::from_utf8(first.bytes).unwrap();
+    assert!(text.contains("\"strategy\": \"trade-tally\""), "{text}");
+
+    // A different strategy observes the same prints but emits different
+    // signals: same probes, different signal hash.
+    let book_config = config.replace("trade-tally", "book-top");
+    let book = run_benchmark(&dir, &book_config).unwrap();
+    let book_text = String::from_utf8(book.bytes).unwrap();
+    let signal_of = |text: &str| {
+        text.lines()
+            .find(|line| line.contains("signal_hash"))
+            .unwrap()
+            .to_owned()
+    };
+    assert_ne!(signal_of(&text), signal_of(&book_text));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
