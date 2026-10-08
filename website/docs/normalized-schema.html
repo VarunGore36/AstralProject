@@ -308,6 +308,10 @@ defined from the first real payloads, not from documentation.</p>
 <p>Hive-style partitions (<code>venue</code>, <code>market_type</code>, <code>symbol</code>, <code>channel</code>, <code>date</code>).
 Symbols use <code>_</code> instead of <code>/</code> because <code>/</code> is a path separator. One writer per
 partition per day; files are immutable once closed, mirroring chunk semantics.</p>
+<p>Rerunning into the same output directory does <strong>not</strong> overwrite: the writer
+numbers the next <code>part-NNNNN.parquet</code> after existing files, so a rerun
+duplicates every row. Idempotency comes from fresh output directories, not
+from the writer — the cross-machine procedure already mandates them.</p>
 <h2 id="validation-rules">Validation rules</h2>
 <p>Every normalized batch must satisfy these before it is accepted:</p>
 <pre><code class="language-text">timestamps within [capture start, capture end + tolerance]   [deferred: tolerance undecided]

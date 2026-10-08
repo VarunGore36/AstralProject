@@ -124,6 +124,11 @@ Hive-style partitions (`venue`, `market_type`, `symbol`, `channel`, `date`).
 Symbols use `_` instead of `/` because `/` is a path separator. One writer per
 partition per day; files are immutable once closed, mirroring chunk semantics.
 
+Rerunning into the same output directory does **not** overwrite: the writer
+numbers the next `part-NNNNN.parquet` after existing files, so a rerun
+duplicates every row. Idempotency comes from fresh output directories, not
+from the writer — the cross-machine procedure already mandates them.
+
 ## Validation rules
 
 Every normalized batch must satisfy these before it is accepted:
