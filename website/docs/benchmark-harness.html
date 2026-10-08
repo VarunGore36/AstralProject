@@ -122,8 +122,9 @@ astra-harness verify --registry ./experiments --hash &lt;report_hash&gt; --input
 <code>&lt;registry&gt;/&lt;report_hash&gt;/</code> — content-addressed, so re-recording is a
 no-op. <code>list</code> shows every run (hash, probes, fills, seed, capture).
 <code>verify</code> re-runs the stored config against a capture directory and compares
-hashes: exact match or <code>MISMATCH</code>, nothing in between. Unknown hashes fail
-loudly; an empty directory lists as empty, not as an error.</p>
+hashes: exact match or <code>MISMATCH</code>, nothing in between. A mismatch exits
+non-zero, so scripts judge it mechanically; unknown hashes fail loudly;
+an empty directory lists as empty, not as an error.</p>
 <h2 id="acceptance">Acceptance</h2>
 <ul>
 <li>Two runs over one capture + config → byte-identical files (asserted in CI

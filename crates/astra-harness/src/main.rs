@@ -108,5 +108,12 @@ fn verify_run(args: VerifyArgs) -> Result<(), String> {
         astra_harness::format_verify_report(&args.registry, &args.hash, &args.input, reproduced)
     );
 
-    Ok(())
+    // A mismatch is a failed verification, not a successful report about
+    // failure: exit non-zero so scripts and CI can judge mechanically,
+    // exactly like ops/soak.sh check does for captures.
+    if reproduced {
+        Ok(())
+    } else {
+        Err("reproduction mismatch".to_owned())
+    }
 }
