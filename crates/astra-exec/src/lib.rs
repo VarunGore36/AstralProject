@@ -105,6 +105,12 @@ pub fn simulate(
                 });
             }
             MarketEvent::Print(print) => {
+                // Corrupt prints (non-positive prices) can never fill: a fill
+                // needs a real counterparty at a real price. Skipped, not
+                // filled and not fatal — the stream may still hold evidence.
+                if print.price.raw() <= 0 {
+                    continue;
+                }
                 let through = match order.side {
                     Side::Buy => print.price.raw() <= order.price.raw(),
                     Side::Sell => print.price.raw() >= order.price.raw(),
@@ -352,6 +358,29 @@ mod tests {
 
         assert_eq!(
             outcome,
+            OrderOutcome::Unfilled {
+                reason: UnfilledReason::NoThroughPrint
+            }
+        );
+    }
+
+    #[test]
+    fn corrupt_prints_are_skipped_never_filled() {
+        // A hostile print at a non-positive price would "trade through" any
+        // buy limit. It must be skipped: fills need real counterparties.
+        let events = vec![
+            MarketEvent::Print(Print {
+                seq: 0,
+                price: Fixed::from_raw(-5),
+            }),
+            MarketEvent::Print(Print {
+                seq: 1,
+                price: Fixed::ZERO,
+            }),
+        ];
+
+        assert_eq!(
+            simulate(&buy_at("100.00000000"), 5, &events).unwrap(),
             OrderOutcome::Unfilled {
                 reason: UnfilledReason::NoThroughPrint
             }
