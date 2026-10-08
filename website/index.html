@@ -323,7 +323,55 @@ stop_reason duration_elapsed</code></pre>
             <p>Replay and normalize enforced the frame count; the soak's judge did not, and never printed <code>stop_reason</code>. Now reports <code>manifest_mismatch</code> as unhealthy.</p>
           </article>
         </div>
-        <p class="eyebrow reveal" style="margin-top: 2.2rem">Findings — closed and still open</p>
+        <p class="eyebrow reveal" style="margin-top: 2.2rem">Closed since the audit</p>
+        <div class="grid grid-3">
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · overflow</p>
+            <h3>Continuity arithmetic at u64::MAX</h3>
+            <p>Three <code>previous + 1</code> sites panicked in debug on hostile IDs — proven exit 101. Now <code>checked_add</code> with a regression test each.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · backoff</p>
+            <h3>Reconnect waits no longer accumulate</h3>
+            <p>Waits doubled toward 30s across long soaks for no benefit. Now a fixed 250ms — a failed attempt already ends the capture.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · manifest trust</p>
+            <h3><code>check</code> verifies frame counts</h3>
+            <p>Replay and normalize enforced the manifest; the soak's judge did not. Now reports <code>manifest_mismatch</code> as unhealthy, plus <code>stop_reason</code>.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · schema gate</p>
+            <h3>Captures declare versions; tools enforce them</h3>
+            <p><code>check</code>, <code>normalize</code>, <code>replay</code>, and <code>reconstruct</code> refuse a newer <code>schema_version</code> — one gate test per reader.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · book errors</p>
+            <h3>Failed live-book applies are counted</h3>
+            <p>Bad levels no longer vanish: every capture prints <code>updates</code> and <code>errors</code> side by side, covered by a hostile-diff test.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · output contracts</p>
+            <h3>All seven CLI formats pinned</h3>
+            <p>Every report renders through a golden-tested library function — including the <code>frames</code> and <code>verdict</code> lines the soak scripts parse.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · decimal range</p>
+            <h3>Parquet columns can't overflow silently</h3>
+            <p>Hostile 13-digit values parsed fine but never fit <code>Decimal128(20,8)</code>. All three validators reject out-of-range batches whole.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · sides &amp; prints</p>
+            <h3>Trade sides canonical, corrupt prints skipped</h3>
+            <p>Side labels fail closed to Buy/Sell-or-unknown; non-positive prints can never fill. Fills need real counterparties.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · gap accounting</p>
+            <h3><code>reconstruct</code> counts connection gaps</h3>
+            <p>Markers classified on the walk — connection-type counted, sequence-type left to the book's own break, undecodable surfaced.</p>
+          </article>
+        </div>
+        <p class="eyebrow reveal" style="margin-top: 2.2rem">Still open, ranked</p>
         <div class="grid grid-2">
           <article class="card reveal">
             <p class="mono-label status-next">Open · 1</p>
@@ -336,24 +384,24 @@ stop_reason duration_elapsed</code></pre>
             <p>Chunks continue their numbering in an existing dir, but manifest and sequence restart at zero — re-capturing into one dir collides. Refuse or resume; all live paths use fresh dirs today.</p>
           </article>
           <article class="card reveal">
-            <p class="mono-label status-done">Closed · schema gate</p>
-            <h3>Captures declare versions; tools enforce them</h3>
-            <p><code>check</code>, <code>normalize</code>, and <code>replay</code> now refuse a newer <code>schema_version</code> instead of misreading it — one gate test per reader.</p>
+            <p class="mono-label status-next">Open · 4-rest</p>
+            <h3><code>reconstruct</code> still walks alone</h3>
+            <p>Manifest-gated and gap-counting now — but still no sequence-continuity walk of its own. Sharing <code>check</code>'s prelude remains the fix.</p>
           </article>
           <article class="card reveal">
-            <p class="mono-label status-next">Open · 4</p>
-            <h3><code>reconstruct</code>, half-strictened</h3>
-            <p>Now manifest-gated and counting connection gaps — but still no sequence-continuity walk of its own. Sharing <code>check</code>'s prelude remains the fix.</p>
+            <p class="mono-label status-next">Open · 5-rest</p>
+            <h3>Behavioral unification</h3>
+            <p>The failure policy is documented in <a href="docs/failure-policy.html">the policy table</a> — same corruption, different outcomes per subcommand. Unifying toward fail-loud stays open.</p>
           </article>
           <article class="card reveal">
-            <p class="mono-label status-next">Open · 5</p>
-            <h3>Fail-loud inconsistency</h3>
-            <p>The same corruption aborts normalize/replay, is counted by <code>check</code>, and is skipped-or-counted by <code>reconstruct</code>/<code>compare</code>. Needs one documented policy table.</p>
+            <p class="mono-label status-next">Open · 6–9</p>
+            <h3><a href="docs/audit-2026-10-06.html">Four more in the doc →</a></h3>
+            <p>Binance-only snapshots, normalize idempotency, null-row divergence, tail-hole reading — plus the items verified benign, so nobody re-audits them.</p>
           </article>
           <article class="card reveal">
-            <p class="mono-label status-next">Open · 6–13</p>
-            <h3><a href="docs/audit-2026-10-06.html">Eight more in the doc →</a></h3>
-            <p>Tail holes, invisible live-book errors, zero CLI coverage, Binance-only snapshots, normalize idempotency, null-row divergence, unvalidated sides — plus the items verified benign, so nobody re-audits them.</p>
+            <p class="mono-label status-next">Next: evidence</p>
+            <h3>Code is the short pole now</h3>
+            <p>The remaining opens need wall-clock time (soak, shadow) or design (streaming, unification) — not more auditing. The VPS run is the next gate.</p>
           </article>
         </div>
       </div>

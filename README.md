@@ -592,7 +592,9 @@ flowchart TD
 ## Verification record
 
 What has actually been checked, and what has not. Nothing here is inferred from
-the fact that the code compiles.
+the fact that the code compiles. Post-audit closures are tracked per-row
+below; the audit itself (`docs/audit-2026-10-06.md`) keeps a follow-ups note
+so the report stays evidence while the fixes move.
 
 ### Top-of-book match gradient
 

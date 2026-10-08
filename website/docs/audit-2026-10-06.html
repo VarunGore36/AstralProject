@@ -44,10 +44,15 @@
         <article class="doc-prose">
 <h1 id="measurement-pipeline-audit-2026-10-06">Measurement-pipeline audit — 2026-10-06</h1>
 <blockquote>
-<p><strong>Follow-ups (2026-10-07):</strong> findings 3 (schema-version gate), 10
-(live-book error counter), and the <code>check</code> half of 11 (golden report
-format) are closed — see the README verification record. The report below
-is unchanged evidence of what the audit found.</p>
+<p><strong>Follow-ups:</strong> findings 3 (schema gate), 4 (reconstruct manifest gate +
+connection-gap counting; its sequence-walk half stays open), 5 (failure
+policy documented in <code>docs/failure-policy.md</code>; behavioral unification stays
+open), 10 (live-book error counter), 11 (all seven CLI formats pinned),
+and 12 (fail-closed trade sides) are closed — see the README verification
+record. Two further bugs found after the audit (Parquet decimal range,
+corrupt-print fills) are fixed with rows in the same table. Still open:
+1, 2, 4-sequence-walk, 5-unification, 6, 7, 8, 9. The report below is
+otherwise unchanged evidence of what the audit found.</p>
 </blockquote>
 <p>The completed half (<code>astra-types</code>, <code>astra-book</code>, <code>astra-record</code>,
 <code>astra-normalize</code>, <code>astra-replay</code>, <code>ops/soak.sh</code>) run to the throttle:
