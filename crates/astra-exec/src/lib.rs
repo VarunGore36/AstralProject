@@ -12,6 +12,7 @@
 use std::path::Path;
 
 use astra_types::Fixed;
+use serde::Serialize;
 use thiserror::Error;
 
 /// Model version stamped on every result. Bump on any rule change.
@@ -20,13 +21,14 @@ pub const MODEL_VERSION: &str = "exec-v1";
 /// Fee denominator: basis points.
 const BPS_DENOMINATOR: i128 = 10_000;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Side {
     Buy,
     Sell,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 pub struct LimitOrder {
     pub side: Side,
     pub price: Fixed,
@@ -47,7 +49,8 @@ pub enum MarketEvent {
     Gap,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum UnfilledReason {
     /// Stream ended (or input was empty) with no through-print.
     NoThroughPrint,
@@ -55,7 +58,8 @@ pub enum UnfilledReason {
     VoidedByGap,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
 pub enum OrderOutcome {
     Filled {
         /// Always the limit price in v1 (whole order, first through-print).
@@ -219,14 +223,18 @@ pub enum ProbeError {
     Exec(#[from] ExecError),
 }
 
+/// Collects the trade-print stream (plus gaps) out of a replay.
+///
+/// Public so the benchmark harness can compose it with a book strategy in a
+/// single replay pass instead of re-reading the capture per probe.
 #[derive(Default)]
-struct ProbeCollector {
-    events: Vec<MarketEvent>,
-    trades: u64,
-    gaps: u64,
+pub struct TradeCollector {
+    pub events: Vec<MarketEvent>,
+    pub trades: u64,
+    pub gaps: u64,
 }
 
-impl astra_replay::Strategy for ProbeCollector {
+impl astra_replay::Strategy for TradeCollector {
     fn on_book_diff(
         &mut self,
         _event: &astra_replay::BookDiffEvent,
@@ -268,7 +276,7 @@ pub fn probe_capture(
     order: &LimitOrder,
     fee_bps: u32,
 ) -> Result<ProbeReport, ProbeError> {
-    let mut collector = ProbeCollector::default();
+    let mut collector = TradeCollector::default();
     astra_replay::replay(input, seed, &mut collector)?;
     Ok(ProbeReport {
         trades: collector.trades,

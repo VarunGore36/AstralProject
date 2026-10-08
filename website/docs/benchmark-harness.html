@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Benchmark harness v1 — Astral Project</title>
+  <meta name="description" content="One capture plus one config into a hashed report." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+        <a href="failure-policy.html">Policy</a>
+        <a href="benchmark-harness.html">Bench</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/benchmark-harness.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="benchmark-harness-v1-astra-harness">Benchmark harness v1 (<code>astra-harness</code>)</h1>
+<p>Status: <strong>specification; implementation follows in the same series.</strong>
+The missing keystone: everything downstream (registry entries, research
+notes, external reproductions) points at the artifact defined here.</p>
+<h2 id="what-it-is">What it is</h2>
+<p>One command turning a capture plus a config into a <strong>hashed report</strong>:</p>
+<pre><code class="language-sh">astra-harness --input ./capture --config ./bench.json --output ./report.json
+</code></pre>
+<pre><code class="language-text">input       ./capture
+config      ./bench.json
+probes      3
+fills       1
+report      ./report.json
+report_hash 9f2c…
+</code></pre>
+<p>Same capture bytes + same config + same code → byte-identical <code>report.json</code>.
+That file <em>is</em> the reproducible result: anyone with the capture can re-run
+the command and compare one hash.</p>
+<h2 id="config-json-versioned">Config (JSON, versioned)</h2>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;seed&quot;: 7,
+  &quot;strategy&quot;: &quot;book-top&quot;,
+  &quot;probes&quot;: [
+    { &quot;side&quot;: &quot;buy&quot;, &quot;price&quot;: &quot;100.00000000&quot;, &quot;quantity&quot;: &quot;1&quot;, &quot;fee_bps&quot;: 5 }
+  ]
+}
+</code></pre>
+<ul>
+<li><code>strategy</code> names the replay strategy whose signals join the report.
+  v1 supports <code>book-top</code> only; unknown names are refused, never defaulted.</li>
+<li>Every probe needs an explicit <code>fee_bps</code> (same rule as <code>exec-v1</code>).</li>
+<li>Unknown JSON fields are refused (fail-closed parsing): a config that
+  means something different than intended must error, not run.</li>
+</ul>
+<h2 id="report-json-canonical">Report (JSON, canonical)</h2>
+<pre><code class="language-json">{
+  &quot;harness_version&quot;: &quot;bench-v1&quot;,
+  &quot;exec_version&quot;: &quot;exec-v1&quot;,
+  &quot;capture_id&quot;: &quot;…&quot;,
+  &quot;frames&quot;: 601,
+  &quot;seed&quot;: 7,
+  &quot;strategy&quot;: &quot;book-top&quot;,
+  &quot;signal_hash&quot;: &quot;…&quot;,
+  &quot;probes&quot;: [
+    {
+      &quot;side&quot;: &quot;buy&quot;, &quot;price&quot;: &quot;100.00000000&quot;, &quot;quantity&quot;: &quot;1&quot;, &quot;fee_bps&quot;: 5,
+      &quot;result&quot;: &quot;filled&quot;, &quot;fill_price&quot;: &quot;100.00000000&quot;,
+      &quot;fee&quot;: &quot;0.05000000&quot;, &quot;print_seq&quot;: 41
+    }
+  ]
+}
+</code></pre>
+<p>Canonical means byte-stable: struct field order is the file order, no hash
+maps anywhere in the path, no timestamps, no wall-clock reads. The report
+hash is SHA-256 over the exact bytes written (pretty JSON plus one trailing
+newline). Unfilled probes report <code>"result": "unfilled"</code> with a <code>reason</code> field and the
+fill fields absent, not null.</p>
+<h2 id="rules">Rules</h2>
+<ul>
+<li>The capture is replayed <strong>once</strong>; all probes simulate over the collected
+  stream. N probes must never mean N replays.</li>
+<li>A torn manifest, a future schema, or an undecodable gap aborts the run
+  through the replay layer — the harness adds no second opinion.</li>
+<li>A gap voids every still-live probe (inherited from <code>exec-v1</code>).</li>
+<li>The harness never invents data: book signals come from replay, fills from
+  exec, counts from the manifest. Anything else is a bug.</li>
+<li>Git commit is recorded <em>alongside</em> the report by the operator (runbook),
+  not inside it: binaries cannot reliably know their own commit.</li>
+</ul>
+<h2 id="acceptance">Acceptance</h2>
+<ul>
+<li>Two runs over one capture + config → byte-identical files (asserted in CI
+  on a fixture capture).</li>
+<li>Tampered manifest → clean refusal, no report written.</li>
+<li>Golden test on the report shape (keys present, unfilled shape exact).</li>
+<li>Live check when venue routes allow: probes over a real trade capture,
+  every fill citing its print.</li>
+</ul>
+<h2 id="open-questions-deliberately-undecided">Open questions (deliberately undecided)</h2>
+<ul>
+<li>More strategies (needs the strategy SDK question answered first).</li>
+<li>A registry that stores reports and links them to configs (next layer up).</li>
+<li>CSV/human summaries next to the canonical JSON (never instead of it).</li>
+<li>Whether <code>strategy</code> stays a name or becomes a WASM/plugin boundary.</li>
+</ul>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/benchmark-harness.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

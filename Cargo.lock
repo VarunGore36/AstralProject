@@ -344,7 +344,23 @@ dependencies = [
  "astra-replay",
  "astra-types",
  "clap",
+ "serde",
  "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "astra-harness"
+version = "0.1.0"
+dependencies = [
+ "astra-exec",
+ "astra-record",
+ "astra-replay",
+ "astra-types",
+ "clap",
+ "serde",
+ "serde_json",
+ "sha2",
  "thiserror",
 ]
 

@@ -29,6 +29,8 @@ PAGES = [
      "145 tests, 3 fixes, 13 ranked findings."),
     ("failure-policy.md", "Policy", "Failure policy",
      "What each subcommand does with bad data."),
+    ("benchmark-harness.md", "Bench", "Benchmark harness v1",
+     "One capture plus one config into a hashed report."),
 ]
 
 TEMPLATE = """<!DOCTYPE html>

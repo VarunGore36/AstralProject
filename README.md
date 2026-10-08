@@ -53,8 +53,9 @@ A rigorous "this has no edge" is a successful result here.
   where the venue offers checkable sequences, offline and in-band
   reconstruction, capture audit, adversarial tests, capture-path and
   book-update latency, Parquet normalization with proven byte-determinism,
-  and a replay engine covering book, trade, and top-of-book events whose
-  live hashes are seed-independent across ten repetitions.
+  a replay engine covering book, trade, and top-of-book events whose
+  live hashes are seed-independent across ten repetitions,
+  and a benchmark harness turning captures plus configs into hashed reports.
 - **Working on** — the 72-hour soak: operator scripted (`ops/soak.sh`), four
   streams, awaiting a supervised 72h window. Judging is mechanical
   (`ops/soak.sh check`: per-stream verdicts, non-zero exit on any issue).
@@ -111,6 +112,7 @@ A rigorous "this has no edge" is a successful result here.
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
 | Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; latency methodology published; cross-machine procedure defined, proof open |
 | Cost and execution model | PARTIALLY IMPLEMENTED — `exec-v1` lib + `astra-exec` probe CLI done (replay trade prints → fills with cited print, 9 unit + 2 integration tests); calibration and shadow mode open |
+| Benchmark harness (`astra-harness`) | DONE — one replay pass (book-top + trade collection composed) + N probe simulations → canonical JSON + SHA-256 report hash; fail-closed config, tampered captures refused |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
 
@@ -159,12 +161,14 @@ flowchart TD
     RP --> BK
     RP --> RC
     RP --> RT
-    NZ --> RC
     NZ --> RT
     RC --> BK
     RC --> RT
     BK --> RT
     EX --> RT
+    HN[astra-harness<br/>one replay · N probes]
+    HN --> RP
+    HN --> EX
 ```
 
 Arrows mean "depends on". Everything speaks the `astra-types` schema, so the
@@ -178,11 +182,13 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` + `trade` + `top_of_book`) |
 | `crates/astra-replay` | Deterministic replay: event core (`book_diff` + `trade` + `top_of_book`), `book-top` strategy, CLI |
 | `crates/astra-exec` | Conservative fills: limit-maker simulation over trade prints, required fee tier, plus a probe CLI (`exec-v1`) |
+| `crates/astra-harness` | Benchmark harness: one replay pass + N probes → canonical hashed JSON report (`bench-v1`) |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables, implemented for `book_diff`, `trade`, `top_of_book` |
 | `docs/replay-design.md` | The v1 contract for the deterministic replay engine, implemented in `astra-replay` |
 | `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
 | `docs/soak-runbook.md` | The 72-hour soak procedure: VPS sizing, shakedown, supervision, judging |
 | `docs/execution-model.md` | The v1 fill/cost spec: conservative limit-maker fills, required fee tier (code open) |
+| `docs/benchmark-harness.md` | The v1 harness spec: config, canonical report, determinism rules (implemented in `astra-harness`) |
 | `docs/audit-2026-10-06.md` | Full-pipeline audit: method, 3 fixes, 13 ranked open findings, claim spot-check |
 | `docs/failure-policy.md` | What each subcommand does with the same corruption (read off the code; unification open) |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
@@ -691,6 +697,7 @@ which equality broke).
 | Remaining CLI formats pinned | `init`, `reconstruct`, and `verify` reports moved into the libs with golden tests (including the empty-book and nothing-checked branches); finding 11 fully closed | PINNED |
 | Parquet decimal range gate | hostile 13-digit values parse as `Fixed` but never fit `Decimal128(20,8)`; all three validators now reject out-of-range batches whole (TDD: test failed first, then the fix) | GATED |
 | Corrupt prints never fill | non-positive trade prints are skipped by `exec-v1` (a fill needs a real counterparty at a real price); regression test with negative and zero prints | GUARDED |
+| Benchmark harness determinism | same capture + config run twice → byte-identical reports; tampered manifest refused with no report written; unknown fields, strategies, and versions refused; golden report-shape test | VERIFIED (fixture; live multi-channel run open) |
 | Reconstruct gated like every reader | `reconstruct` verifies schema version and manifest frame count before rebuilding, failing loud on foreign or half-written captures | GATED |
 | Trade sides fail closed | Bybit/Coinbase side labels canonicalize to Buy/Sell; anything else stores as unknown (`None`) with the print preserved, never verbatim | HARDENED |
 | Reconstruct counts connection gaps | gap markers classified on the walk: connection-type counted, sequence-type left to the reconstructor's own break, undecodable surfaced; overlap behavior documented in code | COUNTED |
