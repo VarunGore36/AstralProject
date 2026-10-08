@@ -678,10 +678,13 @@ fn update_live_book(
     };
 
     let started = Instant::now();
-    if book.apply_event(span, &diff).is_ok() {
-        *updates += 1;
-    } else {
-        *errors += 1;
+    match book.apply_event(span, &diff) {
+        Ok(astra_book::ApplyDecision::Applied) => *updates += 1,
+        // Rejected and pre-snapshot events change nothing and carry no bad
+        // data: they touch neither counter. Errors below are reserved for
+        // invalid levels the venue should never have sent.
+        Ok(_) => {}
+        Err(_) => *errors += 1,
     }
     latency.record(started.elapsed());
 }
@@ -1189,6 +1192,23 @@ mod tests {
         assert_eq!(outcome.latency.samples, 2);
         assert!(outcome.latency.p50_ns > 0);
         assert!(outcome.latency.max_ns >= outcome.latency.p50_ns);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn rejected_book_events_touch_neither_counter() {
+        // A venue sequence jump breaks the live book: the event is neither
+        // a successful update nor invalid data. (The capture layer still
+        // writes its own sequence-gap record for the jump.)
+        let url = serve_connections(vec![vec![depth_frame(100, 110), depth_frame(200, 210)]]);
+        let output = temp_directory("live-book-rejected");
+        let outcome = run_capture(options(&output, url), Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(outcome.frames_written, 2);
+        assert_eq!(outcome.sequence_gaps, 1);
+        assert_eq!(outcome.book_updates, 1);
+        assert_eq!(outcome.book_errors, 0);
 
         std::fs::remove_dir_all(&output).unwrap();
     }

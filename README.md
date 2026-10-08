@@ -710,6 +710,7 @@ which equality broke).
 | Reconstruct counts sequence breaks | scrambled `seq` order counted in `seq_breaks` instead of silently rebuilding; finding 4 fully closed | COUNTED |
 | Normalize reruns append, never overwrite | rerunning into one output dir duplicates rows (`part-N` continues); idempotency is fresh dirs, documented in the schema spec; finding 7 closed as documented | DOCUMENTED |
 | Used capture dirs refuse, not merge | starting a capture where chunks exist errors loudly (`CaptureExists`) instead of colliding sequence numbers; resume stays future work | GUARDED |
+| Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Capture schema-version gate | `check`, `normalize`, and `replay` refuse manifests declaring a newer schema version instead of misreading them; one gate test per reader | GATED |
 | Failure policy table | every corruption × subcommand behavior read off the code into `docs/failure-policy.md`, including the two divergences most worth removing (`compare` manifest-blindness, `reconstruct` synthetic-skip) | DOCUMENTED |
 
