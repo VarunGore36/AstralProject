@@ -36,8 +36,10 @@ cargo build --workspace
 astra-record check --input ./capture    # must print: verdict     healthy
 
 astra-normalize --input ./capture --output ./norm-a
-find ./norm-a -name '*.parquet' | sort | xargs sha256sum | sha256sum
-# ^ dataset hash, record it
+find ./norm-a -name '*.parquet' -exec sha256sum {} + | awk '{print $1}' | sort | sha256sum
+# ^ dataset hash, record it (contents only: raw sha256sum output embeds
+# file paths, so comparing it across differently-named directories always
+# mismatches even on identical bytes)
 
 astra-replay --input ./capture --seed 7 --strategy book-top
 # ^ signal_hash, record it (repeat with --seed 99: book-top must agree)
@@ -54,8 +56,8 @@ cargo build --workspace
 astra-record check --input ./capture    # must print: verdict     healthy
 
 astra-normalize --input ./capture --output ./norm-b
-find ./norm-b -name '*.parquet' | sort | xargs sha256sum | sha256sum
-# ^ must equal machine A's dataset hash
+find ./norm-b -name '*.parquet' -exec sha256sum {} + | awk '{print $1}' | sort | sha256sum
+# ^ must equal machine A's dataset hash (same content-only recipe)
 
 astra-replay --input ./capture --seed 7 --strategy book-top
 # ^ signal_hash must equal machine A's signal_hash
