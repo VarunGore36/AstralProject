@@ -715,6 +715,7 @@ which equality broke).
 | Trade sides fail closed | Bybit/Coinbase side labels canonicalize to Buy/Sell; anything else stores as unknown (`None`) with the print preserved, never verbatim | HARDENED |
 | Reconstruct counts connection gaps | gap markers classified on the walk: connection-type counted, sequence-type left to the reconstructor's own break, undecodable surfaced; overlap behavior documented in code | COUNTED |
 | Reconstruct counts sequence breaks | scrambled `seq` order counted in `seq_breaks` instead of silently rebuilding; finding 4 fully closed | COUNTED |
+| Undecodable gaps abort reconstruction | a gap marker no parser understands fails the run (`UndecodableGap`) like normalize/replay; an old test using a fake marker now uses a real one | UNIFIED |
 | Normalize reruns append, never overwrite | rerunning into one output dir duplicates rows (`part-N` continues); idempotency is fresh dirs, documented in the schema spec; finding 7 closed as documented | DOCUMENTED |
 | Used capture dirs refuse, not merge | starting a capture where chunks exist errors loudly (`CaptureExists`) instead of colliding sequence numbers; resume stays future work | GUARDED |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |

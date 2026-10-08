@@ -19,6 +19,8 @@ pub enum RecordError {
     Snapshot(String),
     #[error("manifest claims {claimed} venue frames but the chunks hold {actual}")]
     ManifestMismatch { claimed: u64, actual: u64 },
+    #[error("undecodable gap marker at seq {seq}")]
+    UndecodableGap { seq: u64 },
     #[error("feed error: {0}")]
     Feed(#[from] FeedError),
     #[error("socket error: {0}")]

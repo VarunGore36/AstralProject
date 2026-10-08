@@ -23,8 +23,6 @@ pub struct ReconstructionSummary {
     /// reconstructor instead (see `gaps`); a reconnect whose fresh spans also
     /// jump counts in both, once per cause.
     pub connection_gaps: u64,
-    /// Synthetic records no parser understands. Counted, not hidden.
-    pub undecodable_gaps: u64,
     pub snapshot_loaded: Option<u64>,
     pub inband_snapshots: u64,
     pub first_error: Option<BookError>,
@@ -67,7 +65,11 @@ pub fn reconstruct(
             match serde_json::from_slice::<GapMarker>(&record.payload) {
                 Ok(marker) if marker.reason.starts_with("update_id_gap") => {}
                 Ok(_) => summary.connection_gaps += 1,
-                Err(_) => summary.undecodable_gaps += 1,
+                // Fail loud like normalize and replay: a gap marker no parser
+                // understands hides the shape of the hole it was meant to mark.
+                Err(_) => {
+                    return Err(RecordError::UndecodableGap { seq: record.seq });
+                }
             }
             continue;
         }
@@ -167,7 +169,6 @@ pub fn format_summary(
     let _ = writeln!(out, "inband      {}", summary.inband_snapshots);
     let _ = writeln!(out, "gaps        {}", summary.gaps);
     let _ = writeln!(out, "conn_gaps   {}", summary.connection_gaps);
-    let _ = writeln!(out, "undecodable {}", summary.undecodable_gaps);
     let _ = writeln!(out, "rejected    {}", summary.rejected_after_gap);
     let _ = writeln!(out, "bid levels  {}", summary.book.bids_len());
     let _ = writeln!(out, "ask levels  {}", summary.book.asks_len());
@@ -422,6 +423,12 @@ mod tests {
         write_capture(&output, vec![real_frame()]);
 
         let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        let marker = GapMarker {
+            started_at: Timestamp::from_unix_nanos(1),
+            ended_at: Timestamp::from_unix_nanos(2),
+            attempts: 0,
+            reason: "update_id_gap: expected 0, saw 0".to_owned(),
+        };
         writer
             .append(&CaptureRecord {
                 seq: 1,
@@ -429,7 +436,7 @@ mod tests {
                 channel: Channel::BookDiff,
                 ts_socket: Timestamp::from_unix_nanos(1),
                 ts_exchange: None,
-                payload: b"{\"b\":[[\"1.00000000\",\"9\"]],\"a\":[]}".to_vec(),
+                payload: serde_json::to_vec(&marker).unwrap(),
                 flags: CaptureFlags::SYNTHETIC
                     .union(CaptureFlags::SEQUENCE_GAP)
                     .union(CaptureFlags::UNRELIABLE),
@@ -448,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn connection_gaps_are_counted_and_undecodable_ones_surfaced() {
+    fn connection_gaps_are_counted() {
         let output = temp_directory("gap-counts");
         write_capture(&output, vec![real_frame()]);
 
@@ -472,12 +479,28 @@ mod tests {
                     .union(CaptureFlags::UNRELIABLE),
             })
             .unwrap();
+        writer.finish().unwrap();
+
+        let summary = reconstruct(&output, None).unwrap();
+
+        assert_eq!(summary.synthetic_records, 1);
+        assert_eq!(summary.connection_gaps, 1);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn undecodable_gap_markers_abort_like_everywhere_else() {
+        let output = temp_directory("undecodable-gap");
+        write_capture(&output, vec![real_frame()]);
+
+        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
         writer
             .append(&CaptureRecord {
-                seq: 2,
+                seq: 1,
                 instrument: instrument(),
                 channel: Channel::BookDiff,
-                ts_socket: Timestamp::from_unix_nanos(2),
+                ts_socket: Timestamp::from_unix_nanos(1),
                 ts_exchange: None,
                 payload: b"not a gap marker".to_vec(),
                 flags: CaptureFlags::SYNTHETIC
@@ -487,11 +510,10 @@ mod tests {
             .unwrap();
         writer.finish().unwrap();
 
-        let summary = reconstruct(&output, None).unwrap();
-
-        assert_eq!(summary.synthetic_records, 2);
-        assert_eq!(summary.connection_gaps, 1);
-        assert_eq!(summary.undecodable_gaps, 1);
+        assert!(matches!(
+            reconstruct(&output, None),
+            Err(crate::error::RecordError::UndecodableGap { seq: 1 })
+        ));
 
         std::fs::remove_dir_all(&output).unwrap();
     }
