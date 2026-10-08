@@ -21,6 +21,9 @@ use astra_types::{CaptureFlags, CaptureManifest, Channel, GapMarker};
 pub const SCHEMA_VERSION: u32 = 1;
 pub const DECIMAL_PRECISION: u8 = 20;
 pub const DECIMAL_SCALE: i8 = 8;
+/// Largest value a `Decimal128(20, 8)` column can hold, in raw units.
+/// Anything larger parses as `Fixed` but does not fit the column.
+const DECIMAL_MAX_RAW: i128 = 99_999_999_999_999_999_999;
 const SCHEMA_VERSION_KEY: &str = "astra.schema_version";
 
 #[derive(Debug, Error)]
@@ -288,6 +291,12 @@ fn validate_batch(rows: &[BookDiffRow]) -> Result<(), NormalizeError> {
                         row.seq
                     )));
                 }
+                if *price > DECIMAL_MAX_RAW || *quantity > DECIMAL_MAX_RAW {
+                    return Err(NormalizeError::Validation(format!(
+                        "value beyond Decimal128(20,8) at seq {}: price {price}, quantity {quantity}",
+                        row.seq
+                    )));
+                }
             }
         }
     }
@@ -404,6 +413,12 @@ fn validate_trades(rows: &[TradeRow]) -> Result<(), NormalizeError> {
                     row.seq
                 )));
             }
+            if quantity > DECIMAL_MAX_RAW {
+                return Err(NormalizeError::Validation(format!(
+                    "quantity beyond Decimal128(20,8) at seq {}: {quantity}",
+                    row.seq
+                )));
+            }
         }
     }
 
@@ -516,6 +531,14 @@ fn validate_top_books(rows: &[TopBookRow]) -> Result<(), NormalizeError> {
                     row.seq
                 )));
             }
+            if let Some(price) = value {
+                if price > DECIMAL_MAX_RAW {
+                    return Err(NormalizeError::Validation(format!(
+                        "{label} beyond Decimal128(20,8) at seq {}: {price}",
+                        row.seq
+                    )));
+                }
+            }
         }
         for (label, value) in [
             ("best_bid_qty", row.best_bid_qty),
@@ -526,6 +549,14 @@ fn validate_top_books(rows: &[TopBookRow]) -> Result<(), NormalizeError> {
                     "invalid {label} at seq {}",
                     row.seq
                 )));
+            }
+            if let Some(quantity) = value {
+                if quantity > DECIMAL_MAX_RAW {
+                    return Err(NormalizeError::Validation(format!(
+                        "{label} beyond Decimal128(20,8) at seq {}: {quantity}",
+                        row.seq
+                    )));
+                }
             }
         }
     }
@@ -1482,6 +1513,32 @@ mod tests {
         assert!(matches!(
             normalize(&input, &output),
             Err(NormalizeError::SchemaVersion { .. })
+        ));
+
+        std::fs::remove_dir_all(&input).unwrap();
+        let _ = std::fs::remove_dir_all(&output);
+    }
+
+    #[test]
+    fn values_beyond_parquet_decimal_precision_are_rejected() {
+        // Decimal128(20, 8) holds at most 10^20 - 1 unscaled. A hostile
+        // 13-digit price parses as Fixed fine but does not fit the column;
+        // the batch must be rejected whole, never written half-garbled.
+        let input = temp_directory("decimal-range");
+        let output = temp_directory("decimal-range-out");
+        write_capture(
+            &input,
+            vec![record(
+                0,
+                Channel::BookDiff,
+                1_700_000_000_000_000_000,
+                br#"{"e":"depthUpdate","s":"BTCUSDT","U":100,"u":105,"b":[["1000000000000.00000000","1"]],"a":[]}"#.to_vec(),
+            )],
+        );
+
+        assert!(matches!(
+            normalize(&input, &output),
+            Err(NormalizeError::Validation(_))
         ));
 
         std::fs::remove_dir_all(&input).unwrap();

@@ -689,6 +689,7 @@ which equality broke).
 | Check output golden format | `check` rendering moved into the lib with line-by-line golden tests, so the `verdict` line `soak.sh` parses cannot drift silently; CLI output verified byte-identical after the move | PINNED |
 | CLI output contracts pinned | `capture` (`frames` line parsed by `soak.sh status`), `replay` (`signal_hash`), and `exec` reports all render through golden-tested lib functions; byte-identical output verified live after each move | PINNED |
 | Remaining CLI formats pinned | `init`, `reconstruct`, and `verify` reports moved into the libs with golden tests (including the empty-book and nothing-checked branches); finding 11 fully closed | PINNED |
+| Parquet decimal range gate | hostile 13-digit values parse as `Fixed` but never fit `Decimal128(20,8)`; all three validators now reject out-of-range batches whole (TDD: test failed first, then the fix) | GATED |
 | Reconstruct gated like every reader | `reconstruct` verifies schema version and manifest frame count before rebuilding, failing loud on foreign or half-written captures | GATED |
 | Trade sides fail closed | Bybit/Coinbase side labels canonicalize to Buy/Sell; anything else stores as unknown (`None`) with the print preserved, never verbatim | HARDENED |
 | Reconstruct counts connection gaps | gap markers classified on the walk: connection-type counted, sequence-type left to the reconstructor's own break, undecodable surfaced; overlap behavior documented in code | COUNTED |
