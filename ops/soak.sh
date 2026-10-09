@@ -19,6 +19,14 @@ cmd_start() {
   mkdir -p "$SOAK"
   streams | while read -r name venue market symbol channel url; do
     out="$SOAK/$name"
+    if pgrep -f "astra-record capture --output $out" > /dev/null; then
+      echo "$name already RUNNING, not starting a second capture" >&2
+      continue
+    fi
+    if ls "$out"/frames/chunk-*.zst >/dev/null 2>&1; then
+      echo "$name already holds chunks in $out, refusing (fresh dir or resume work needed)" >&2
+      continue
+    fi
     mkdir -p "$out"
     if [ -n "$url" ]; then url_flag="--url $url"; else url_flag=""; fi
     # shellcheck disable=SC2086
@@ -32,6 +40,10 @@ cmd_start() {
 
 cmd_status() {
   streams | while read -r name venue market symbol channel url; do
+    if [ ! -d "$SOAK/$name" ]; then
+      echo "$name NOT STARTED (no directory)"
+      continue
+    fi
     frames=$(grep -h "^frames" "$SOAK/$name.log" 2>/dev/null || echo "not finished")
     if pgrep -f "astra-record capture --output $SOAK/$name" > /dev/null; then
       echo "$name RUNNING ($frames)"

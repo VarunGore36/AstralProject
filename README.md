@@ -734,6 +734,7 @@ which equality broke).
 | `init` refuses used dirs too | the same guard covers initialization, which rewrote manifests under existing chunks; fresh dirs initialize normally | GUARDED |
 | Tampered registry entries fail closed | rewriting a stored config changes the re-run, so verification compares unequal and returns false instead of trusting the directory name | TESTED |
 | Soak dir dated and overridable | `ops/soak.sh` defaults to `data/soak-<date>` (the stale 2026-09-29 default is gone) with `SOAK_DIR` override, documented in the runbook | OPERATIONAL |
+| Soak guards against double-start | `start` refuses already-running streams and chunk-holding dirs instead of launching doomed duplicates; `status` reports never-started dirs distinctly (both paths demoed) | OPERATIONAL |
 | Python bindings foothold | `astra` module with exact decimal arithmetic and clock reads, tested through the embedded interpreter on Python 3.14; `import astra` packaging (maturin) stays open | TESTED |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |
