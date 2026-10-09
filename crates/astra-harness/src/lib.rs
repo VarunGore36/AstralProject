@@ -401,6 +401,16 @@ pub fn format_verify_report(registry: &Path, hash: &str, input: &Path, reproduce
 /// Reproduce a recorded run: re-execute its stored config against `input`
 /// and compare hashes. Returns true on exact reproduction.
 pub fn verify_run(registry: &Path, hash: &str, input: &Path) -> Result<bool, HarnessError> {
+    // The hash becomes a path segment below. Refuse anything that is not a
+    // report hash (64 lowercase hex chars) so values like `../../etc` can
+    // never escape the registry directory.
+    if hash.len() != 64
+        || !hash
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(HarnessError::Config(format!("not a report hash: {hash:?}")));
+    }
     let dir = registry.join(hash);
     let config = std::fs::read_to_string(dir.join("config.json"))?;
     let run = run_benchmark(input, &config)?;
@@ -432,6 +442,36 @@ mod tests {
         assert!(matches!(
             run_benchmark(std::path::Path::new("./missing"), config),
             Err(HarnessError::Config(_))
+        ));
+    }
+
+    #[test]
+    fn non_hash_inputs_never_become_paths() {
+        let registry = std::path::Path::new("./missing-registry");
+        let input = std::path::Path::new("./missing-capture");
+        // Traversal, empties, wrong lengths, and uppercase hex are refused
+        // as malformed hashes before any filesystem access.
+        let bad_inputs = vec![
+            "../..".to_owned(),
+            String::new(),
+            "abc".to_owned(),
+            "f".repeat(63),
+            "F".repeat(64),
+        ];
+        for bad in &bad_inputs {
+            assert!(
+                matches!(
+                    verify_run(registry, bad, input),
+                    Err(HarnessError::Config(_))
+                ),
+                "input {bad:?} should be refused"
+            );
+        }
+        // A well-formed but absent hash fails on the missing directory, not
+        // on validation — proving the check above is what guards the join.
+        assert!(matches!(
+            verify_run(registry, &"0".repeat(64), input),
+            Err(HarnessError::Io(_))
         ));
     }
 
