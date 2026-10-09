@@ -177,6 +177,35 @@ fn record_list_verify_roundtrip() {
 }
 
 #[test]
+fn distinct_runs_list_sorted_side_by_side() {
+    use astra_harness::{list_runs, record_run, run_benchmark};
+
+    let dir = temp_directory("multi");
+    let registry = temp_directory("multi-store");
+    write_capture(&dir);
+
+    let first = run_benchmark(&dir, CONFIG).unwrap();
+    let other_config = CONFIG.replace("100.00000000", "90.00000000");
+    let second = run_benchmark(&dir, &other_config).unwrap();
+    assert_ne!(first.hash, second.hash);
+
+    record_run(&registry, CONFIG, &first).unwrap();
+    record_run(&registry, &other_config, &second).unwrap();
+
+    let runs = list_runs(&registry).unwrap();
+    assert_eq!(runs.len(), 2);
+    let mut hashes: Vec<&str> = runs.iter().map(|run| run.hash.as_str()).collect();
+    hashes.sort_unstable();
+    assert_eq!(
+        hashes,
+        runs.iter().map(|run| run.hash.as_str()).collect::<Vec<_>>()
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&registry).unwrap();
+}
+
+#[test]
 fn trade_tally_strategy_benchmarks_deterministically() {
     let dir = temp_directory("tally");
     write_capture(&dir);

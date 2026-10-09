@@ -714,6 +714,7 @@ which equality broke).
 | Verify mismatch exits non-zero | `MISMATCH` verdicts fail the process (exit 1), so scripts judge reproductions mechanically like `soak.sh check` judges captures; match exits 0, both demoed live | VERIFIED live |
 | BookTop breaks like the book | gaps and venue discontinuities silence `book-top` until a snapshot heals it, per the replay design contract; post-gap diffs emit nothing; reworked regression test | ENFORCED |
 | Snapshot heal path tested | a broken `book-top` resumes emitting after a fresh snapshot with the snapshot's levels; break and heal both covered | TESTED |
+| Registry lists distinct runs sorted | two different configs recorded side by side list in hash order with correct counts; listing is stable, not incidental | TESTED |
 | Verify hashes are validated before joining | `verify` refuses anything that is not a 64-char lowercase report hash, so traversal inputs can never escape the registry directory; well-formed misses fail on I/O instead | GUARDED |
 | Harness CLI formats pinned | `run`, `list`, and `verify` reports render through golden-tested lib functions; live output verified byte-identical after the move | PINNED |
 | Live ritual 2026-10-08 | fresh 600-frame Binance capture: normalized twice → byte-identical Parquet; replayed 10× under one seed → one unique signal hash; a first-pass content-hash recipe mismatched on filenames and was corrected to contents-only | VERIFIED |
