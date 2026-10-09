@@ -97,10 +97,14 @@ pub fn check(input: &Path) -> Result<CheckReport, RecordError> {
                 match serde_json::from_slice::<GapMarker>(&record.payload) {
                     Ok(marker) => {
                         if marker.reason.starts_with("update_id_gap") {
-                            report.update_id_gaps.push(UpdateIdGap {
-                                expected: 0,
-                                found: 0,
-                            });
+                            // The writer records the numbers in prose
+                            // ("update_id_gap: expected 121, saw 200"); the
+                            // audit recovers them so its own update_gap lines
+                            // carry data. Unparseable shapes keep (0, 0) and
+                            // stay visible in gap_details regardless.
+                            let (expected, found) =
+                                parse_update_id_gap(&marker.reason).unwrap_or((0, 0));
+                            report.update_id_gaps.push(UpdateIdGap { expected, found });
                         } else {
                             report.connection_gaps += 1;
                         }
@@ -153,6 +157,12 @@ fn observe_timestamp(report: &mut CheckReport, timestamp: Timestamp) {
         report.first_ts = Some(timestamp);
     }
     report.last_ts = Some(timestamp);
+}
+
+fn parse_update_id_gap(reason: &str) -> Option<(u64, u64)> {
+    let rest = reason.strip_prefix("update_id_gap: expected ")?;
+    let (expected, rest) = rest.split_once(", saw ")?;
+    Some((expected.trim().parse().ok()?, rest.trim().parse().ok()?))
 }
 
 pub(crate) fn read_manifest(input: &Path) -> Result<CaptureManifest, RecordError> {
@@ -450,6 +460,19 @@ mod tests {
     }
 
     #[test]
+    fn update_id_gap_markers_keep_their_numbers() {
+        assert_eq!(
+            parse_update_id_gap("update_id_gap: expected 121, saw 200"),
+            Some((121, 200))
+        );
+        // Future shapes degrade to zeros but never panic; the reason string
+        // itself always survives in gap_details.
+        assert_eq!(parse_update_id_gap("update_id_gap: something new"), None);
+        assert_eq!(parse_update_id_gap("venue_close"), None);
+        assert_eq!(parse_update_id_gap(""), None);
+    }
+
+    #[test]
     fn gap_records_are_listed_with_reasons() {
         let output = temp_directory("gaps");
         write_records(
@@ -619,6 +642,47 @@ mod tests {
             assert!(text.contains(line), "missing line: {line}\n{text}");
         }
     }
+    #[test]
+    fn captured_gap_numbers_reach_the_report() {
+        let output = temp_directory("gap-numbers");
+        write_records(
+            &output,
+            vec![
+                (depth_frame(100, 110), CaptureFlags::NONE),
+                (
+                    gap_payload("update_id_gap: expected 121, saw 200"),
+                    CaptureFlags::SYNTHETIC
+                        .union(CaptureFlags::SEQUENCE_GAP)
+                        .union(CaptureFlags::UNRELIABLE),
+                ),
+                (depth_frame(200, 210), CaptureFlags::NONE),
+            ],
+            10,
+        );
+
+        let report = check(&output).unwrap();
+
+        // The marker's own numbers plus the independently detected span jump
+        // (200 > 111): belt and suspenders, both true, both reported.
+        assert_eq!(
+            report.update_id_gaps,
+            vec![
+                UpdateIdGap {
+                    expected: 121,
+                    found: 200
+                },
+                UpdateIdGap {
+                    expected: 111,
+                    found: 200
+                },
+            ]
+        );
+        let text = format_report(std::path::Path::new("./capture"), &report);
+        assert!(text.contains("update_gap  expected 121 saw 200"), "{text}");
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
     #[test]
     fn unparseable_frames_count_as_unchecked() {
         let output = temp_directory("unchecked");
