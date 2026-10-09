@@ -1166,6 +1166,74 @@ mod tests {
         assert!(top.ts_exchange.is_some());
     }
 
+    /// Deterministic xorshift: fuzzing must reproduce exactly, so no
+    /// external RNG and no entropy. Same seed, same stream, every run.
+    struct FuzzRng(u64);
+
+    impl FuzzRng {
+        fn next_u8(&mut self) -> u8 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 >> 32) as u8
+        }
+    }
+
+    #[test]
+    fn fuzzed_bytes_never_panic_any_parser() {
+        // The suite historically covered 26 hand-picked hostile payloads.
+        // This covers the space between them: pure noise plus byte-mutated
+        // real frames, through every venue/channel parser. Success is the
+        // absence of panics — results may parse or not, but must never crash.
+        let seeds: &[&[u8]] = &[
+            include_str!("../testdata/binance_depth_update.json").as_bytes(),
+            include_str!("../testdata/binance_trade.json").as_bytes(),
+            include_str!("../testdata/binance_book_ticker.json").as_bytes(),
+        ];
+        let venues = [Venue::Binance, Venue::Bybit, Venue::Coinbase];
+        let channels = [
+            Channel::BookDiff,
+            Channel::Trade,
+            Channel::BookTicker,
+            Channel::BookSnapshot,
+            Channel::Funding,
+        ];
+
+        let mut rng = FuzzRng(0x243F_6A88_85A3_08D3);
+        // Pure noise at hostile lengths, including empty and huge.
+        for _ in 0..2000 {
+            let len = (rng.next_u8() as usize * 3) % 300;
+            let payload: Vec<u8> = (0..len).map(|_| rng.next_u8()).collect();
+            exercise_parsers(&venues, &channels, &payload);
+        }
+        // Single- and double-byte mutations of genuine venue frames.
+        for seed in seeds {
+            for _ in 0..500 {
+                let mut payload = seed.to_vec();
+                for _ in 0..2 {
+                    if !payload.is_empty() {
+                        let at = rng.next_u8() as usize % payload.len();
+                        payload[at] = rng.next_u8();
+                    }
+                }
+                exercise_parsers(&venues, &channels, &payload);
+            }
+        }
+    }
+
+    fn exercise_parsers(venues: &[Venue], channels: &[Channel], payload: &[u8]) {
+        for venue in venues {
+            for channel in channels {
+                let _ = update_span(*venue, *channel, payload);
+                let _ = book_diff(*venue, *channel, payload);
+                let _ = book_snapshot(*venue, *channel, payload);
+                let _ = trade_prints(*venue, *channel, payload);
+                let _ = top_of_book(*venue, *channel, payload);
+                let _ = inband_snapshot(*venue, *channel, payload);
+            }
+        }
+    }
+
     #[test]
     fn hostile_top_of_book_payloads_never_panic_and_never_parse() {
         let hostile: &[&[u8]] = &[
