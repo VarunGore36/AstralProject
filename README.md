@@ -373,7 +373,9 @@ cargo run -p astra-replay -- --input ./capture --seed 7 --strategy book-top
 ```
 
 Re-emits the capture's events in order through a strategy. `book-top`
-maintains a live book and emits top-of-book per book event; every signal feeds a
+maintains a live book and emits top-of-book per book event — except while
+broken: a gap marker or a venue discontinuity silences it until a fresh
+snapshot heals it, exactly like the reconstructor it mirrors. Every signal feeds a
 SHA-256 hash printed at the end. Same capture plus same seed always yields
 the same hash — replay twice with different seeds and differing hashes mean
 the strategy depends on randomness it should not. `book-top` ignores trade
@@ -710,6 +712,7 @@ which equality broke).
 | Registry roundtrip | record → list → verify over fixture captures: idempotent re-record, single listing, exact reproduction, mismatch on different outcomes, loud refusal of unknown hashes, empty dir lists empty; `verdict reproduced` demoed live | VERIFIED (fixture + live CLI) |
 | Second replay strategy | `trade-tally` counts prints by side with its own unknown bucket and one end-of-stream signal; harness dispatches `book-top`/`trade-tally` (unknown refused); same probes under different strategies give different signal hashes | TESTED |
 | Verify mismatch exits non-zero | `MISMATCH` verdicts fail the process (exit 1), so scripts judge reproductions mechanically like `soak.sh check` judges captures; match exits 0, both demoed live | VERIFIED live |
+| BookTop breaks like the book | gaps and venue discontinuities silence `book-top` until a snapshot heals it, per the replay design contract; post-gap diffs emit nothing; reworked regression test | ENFORCED |
 | Harness CLI formats pinned | `run`, `list`, and `verify` reports render through golden-tested lib functions; live output verified byte-identical after the move | PINNED |
 | Live ritual 2026-10-08 | fresh 600-frame Binance capture: normalized twice → byte-identical Parquet; replayed 10× under one seed → one unique signal hash; a first-pass content-hash recipe mismatched on filenames and was corrected to contents-only | VERIFIED |
 | Soak-scale memory profile | synthetic 300k-frame capture: `check` ~10 MB (streams), `replay` ~130 MB, `normalize` ~340 MB peak RSS (debug, small payloads — a floor); full-soak judging needs GB or streaming; recorded in the runbook | MEASURED |

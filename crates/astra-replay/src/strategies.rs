@@ -5,17 +5,23 @@ use crate::replay::{BookDiffEvent, Context, SnapshotEvent, Strategy, TradeEvent}
 
 pub struct BookTop {
     book: Reconstructor,
+    broken: bool,
 }
 
 impl BookTop {
     pub fn new() -> Self {
         BookTop {
             book: Reconstructor::new(),
+            broken: false,
         }
     }
 
     pub fn book(&self) -> &Reconstructor {
         &self.book
+    }
+
+    pub fn is_broken(&self) -> bool {
+        self.broken
     }
 }
 
@@ -27,17 +33,30 @@ impl Default for BookTop {
 
 impl Strategy for BookTop {
     fn on_book_diff(&mut self, event: &BookDiffEvent, ctx: &mut Context) {
+        // A broken book emits nothing: tops built on a book the venue stream
+        // already invalidated would measure a market that never existed. Only
+        // a fresh snapshot heals it — same rule as the reconstructor itself.
+        if self.broken {
+            return;
+        }
         let _ = self.book.apply_event(event.span, &event.diff);
+        if !self.book.is_reliable() {
+            self.broken = true;
+            return;
+        }
         emit_top(&self.book, event.seq, ctx);
     }
 
     fn on_snapshot(&mut self, event: &SnapshotEvent, ctx: &mut Context) {
         if self.book.load_snapshot(&event.snapshot).is_ok() {
+            self.broken = false;
             emit_top(&self.book, event.seq, ctx);
         }
     }
 
-    fn on_gap(&mut self, _marker: &GapMarker, _ctx: &mut Context) {}
+    fn on_gap(&mut self, _marker: &GapMarker, _ctx: &mut Context) {
+        self.broken = true;
+    }
 }
 
 fn emit_top(book: &Reconstructor, seq: u64, ctx: &mut Context) {
@@ -185,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn gaps_emit_nothing_but_do_not_break_the_strategy() {
+    fn gaps_break_the_strategy_until_a_snapshot_heals_it() {
         let mut strategy = BookTop::new();
         let mut ctx = context();
 
@@ -200,6 +219,14 @@ mod tests {
                 attempts: 1,
                 reason: "venue_close".to_owned(),
             },
+            &mut ctx,
+        );
+        assert!(strategy.is_broken());
+
+        // Post-gap diffs emit nothing: the book they would describe died
+        // with the gap.
+        strategy.on_book_diff(
+            &diff_event(1, 106, 110, vec![level("100.50000000", "2")], vec![]),
             &mut ctx,
         );
 
