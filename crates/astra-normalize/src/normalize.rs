@@ -984,13 +984,15 @@ fn append_levels(builder: &mut ListBuilder<StructBuilder>, levels: Option<&[(i12
 
     let values = builder.values();
     for (price, quantity) in levels {
+        // Builders are constructed two lines above in this exact order, so
+        // these downcasts cannot fail; expect documents the invariant.
         values
             .field_builder::<Decimal128Builder>(0)
-            .expect("price builder")
+            .expect("price builder at index 0")
             .append_value(*price);
         values
             .field_builder::<Decimal128Builder>(1)
-            .expect("quantity builder")
+            .expect("quantity builder at index 1")
             .append_value(*quantity);
         values.append(true);
     }

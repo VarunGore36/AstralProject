@@ -171,18 +171,33 @@ enum Disconnect {
     ReadError(String),
 }
 
+/// Gap and stop reasons embed venue error strings, which are unbounded
+/// (TLS dumps and all). Cap them so one chatty failure cannot bloat every
+/// gap record of a flapping soak. The marker keeps the head, where the
+/// cause always is, and says so when it cuts.
+const MAX_REASON_CHARS: usize = 240;
+
+fn bound_reason(prefix: &str, detail: &str) -> String {
+    let base = format!("{prefix}: {detail}");
+    if base.chars().count() <= MAX_REASON_CHARS {
+        return base;
+    }
+    let head: String = base.chars().take(MAX_REASON_CHARS).collect();
+    format!("{head}…[truncated]")
+}
+
 impl Disconnect {
     fn gap_reason(&self) -> String {
         match self {
             Disconnect::VenueClose => GAP_VENUE_CLOSE.to_owned(),
-            Disconnect::ReadError(error) => format!("{GAP_READ_ERROR}: {error}"),
+            Disconnect::ReadError(error) => bound_reason(GAP_READ_ERROR, &error.to_string()),
         }
     }
 
     fn stop_reason(&self) -> String {
         match self {
             Disconnect::VenueClose => STOP_VENUE_CLOSED.to_owned(),
-            Disconnect::ReadError(error) => format!("{GAP_READ_ERROR}: {error}"),
+            Disconnect::ReadError(error) => bound_reason(GAP_READ_ERROR, &error.to_string()),
         }
     }
 }
@@ -1082,6 +1097,23 @@ mod tests {
         assert!(gaps[0].reason.contains("saw 200"));
 
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn gap_reasons_are_bounded_and_marked_when_cut() {
+        let short = bound_reason(GAP_READ_ERROR, "timed out");
+        assert_eq!(short, "read_error: timed out");
+
+        let long = "x".repeat(10_000);
+        let cut = bound_reason(GAP_READ_ERROR, &long);
+        assert!(cut.chars().count() <= MAX_REASON_CHARS + 20, "{cut}");
+        assert!(cut.ends_with("…[truncated]"), "{cut}");
+        assert!(cut.starts_with("read_error: xxx"), "{cut}");
+
+        // Multibyte content cuts on char boundaries, never mid-codepoint.
+        let wide = "é".repeat(10_000);
+        let cut = bound_reason(GAP_READ_ERROR, &wide);
+        assert!(cut.ends_with("…[truncated]"));
     }
 
     #[test]

@@ -718,6 +718,7 @@ which equality broke).
 | Reconstruct counts sequence breaks | scrambled `seq` order counted in `seq_breaks` instead of silently rebuilding; finding 4 fully closed | COUNTED |
 | Undecodable gaps abort reconstruction | a gap marker no parser understands fails the run (`UndecodableGap`) like normalize/replay; an old test using a fake marker now uses a real one | UNIFIED |
 | Undecodable markers abort comparison | the last silent skip in the failure table: `verify` fails on undecodable synthetic records on either side instead of comparing past an unseen hole | UNIFIED |
+| Bounded failure strings, documented expects | venue error text in gap/stop reasons capped at 240 chars (marked when cut); the last bare production `unwrap` now states its guard | HARDENED |
 | Normalize reruns append, never overwrite | rerunning into one output dir duplicates rows (`part-N` continues); idempotency is fresh dirs, documented in the schema spec; finding 7 closed as documented | DOCUMENTED |
 | Used capture dirs refuse, not merge | starting a capture where chunks exist errors loudly (`CaptureExists`) instead of colliding sequence numbers; resume stays future work | GUARDED |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |

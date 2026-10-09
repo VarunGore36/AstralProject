@@ -192,7 +192,13 @@ fn decode_records(body: &[u8], path: &Path) -> Result<Vec<CaptureRecord>, StoreE
         if rest.len() < LENGTH_PREFIX_BYTES {
             return Err(truncated(path));
         }
-        let length = u32::from_le_bytes(rest[..LENGTH_PREFIX_BYTES].try_into().unwrap()) as usize;
+        // Guarded two lines above: rest holds at least LENGTH_PREFIX_BYTES,
+        // so this slice is exactly four bytes and the conversion cannot fail.
+        let length = u32::from_le_bytes(
+            rest[..LENGTH_PREFIX_BYTES]
+                .try_into()
+                .expect("chunk framing"),
+        ) as usize;
         rest = &rest[LENGTH_PREFIX_BYTES..];
         if rest.len() < length {
             return Err(truncated(path));
