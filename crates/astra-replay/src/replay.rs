@@ -244,7 +244,9 @@ pub fn replay(
             &BookDiffEvent {
                 seq: record.seq,
                 ts_socket: record.ts_socket,
-                ts_exchange: record.ts_exchange,
+                ts_exchange: record
+                    .ts_exchange
+                    .or_else(|| feed::exchange_time(venue, record.channel, &record.payload)),
                 span,
                 diff,
             },

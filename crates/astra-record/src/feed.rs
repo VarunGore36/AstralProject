@@ -89,6 +89,28 @@ struct BinanceDepthEvent {
     last_update_id: u64,
 }
 
+#[derive(serde::Deserialize)]
+struct BinanceDepthTime {
+    #[serde(rename = "E")]
+    event_time_millis: i64,
+}
+
+/// Venue-supplied event time, where the payload format carries one.
+/// Binance depth events carry `E` (milliseconds); every other venue/channel
+/// combination here carries nothing checkable, so this returns None rather
+/// than guessing.
+pub fn exchange_time(venue: Venue, channel: Channel, payload: &[u8]) -> Option<Timestamp> {
+    match (venue, channel) {
+        (Venue::Binance, Channel::BookDiff) => {
+            let event: BinanceDepthTime = serde_json::from_slice(payload).ok()?;
+            Some(Timestamp::from_unix_nanos(
+                event.event_time_millis.saturating_mul(1_000_000),
+            ))
+        }
+        _ => None,
+    }
+}
+
 fn binance_depth_span(payload: &[u8]) -> Option<UpdateSpan> {
     let event: BinanceDepthEvent = serde_json::from_slice(payload).ok()?;
     Some(UpdateSpan::new(event.first_update_id, event.last_update_id))
@@ -809,6 +831,27 @@ mod tests {
         assert_eq!(unwrap_combined(b"{\"stream\":\"x\"}"), None);
         assert_eq!(unwrap_combined(b"{\"data\":{}}"), None);
         assert_eq!(unwrap_combined(b"{\"stream\":1,\"data\":{}}"), None);
+    }
+
+    #[test]
+    fn venue_event_time_comes_from_binance_e_only() {
+        let binance = include_str!("../testdata/binance_depth_update.json");
+        let ts = exchange_time(Venue::Binance, Channel::BookDiff, binance.as_bytes()).unwrap();
+        assert_eq!(ts.unix_nanos(), 1_790_420_019_514_000_000);
+
+        // Missing E, wrong venues, and wrong channels yield nothing.
+        assert_eq!(
+            exchange_time(Venue::Binance, Channel::BookDiff, b"{\"U\":1,\"u\":2}"),
+            None
+        );
+        assert_eq!(
+            exchange_time(Venue::Bybit, Channel::BookDiff, binance.as_bytes()),
+            None
+        );
+        assert_eq!(
+            exchange_time(Venue::Binance, Channel::Trade, binance.as_bytes()),
+            None
+        );
     }
 
     #[test]

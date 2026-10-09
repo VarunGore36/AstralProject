@@ -559,7 +559,9 @@ flowchart TD
 ## Known limitations
 
 - `ts_exchange` is not populated at capture time. Reading the venue timestamp
-  out of the payload is normalisation work and happens later.
+  out of the payload happens downstream: Binance `E` millis populate it for
+  `book_diff` in replay and normalization (other venue/channels carry nothing
+  checkable and stay null).
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
 - Three venues probed, three connected where public. Binance maps one URL per
@@ -714,6 +716,7 @@ which equality broke).
 | Registry roundtrip | record → list → verify over fixture captures: idempotent re-record, single listing, exact reproduction, mismatch on different outcomes, loud refusal of unknown hashes, empty dir lists empty; `verdict reproduced` demoed live | VERIFIED (fixture + live CLI) |
 | Second replay strategy | `trade-tally` counts prints by side with its own unknown bucket and one end-of-stream signal; harness dispatches `book-top`/`trade-tally` (unknown refused); same probes under different strategies give different signal hashes | TESTED |
 | Verify mismatch exits non-zero | `MISMATCH` verdicts fail the process (exit 1), so scripts judge reproductions mechanically like `soak.sh check` judges captures; match exits 0, both demoed live | VERIFIED live |
+| Venue event time for Binance diffs | `E` millis parse to `ts_exchange` in replay events and normalized rows (other venues/channels stay null); fixture-pinned plus a read-back test | WIRED |
 | BookTop breaks like the book | gaps and venue discontinuities silence `book-top` until a snapshot heals it, per the replay design contract; post-gap diffs emit nothing; reworked regression test | ENFORCED |
 | Snapshot heal path tested | a broken `book-top` resumes emitting after a fresh snapshot with the snapshot's levels; break and heal both covered | TESTED |
 | Registry lists distinct runs sorted | two different configs recorded side by side list in hash order with correct counts; listing is stable, not incidental | TESTED |

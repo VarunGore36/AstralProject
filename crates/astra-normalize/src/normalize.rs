@@ -214,7 +214,13 @@ fn book_diff_row(
         market_type: record.instrument.market_type().to_string(),
         symbol: record.instrument.symbol().to_string(),
         channel: record.channel.to_string(),
-        ts_exchange: record.ts_exchange.map(|timestamp| timestamp.unix_nanos()),
+        ts_exchange: record
+            .ts_exchange
+            .map(|timestamp| timestamp.unix_nanos())
+            .or_else(|| {
+                feed::exchange_time(venue, record.channel, &record.payload)
+                    .map(|timestamp| timestamp.unix_nanos())
+            }),
         ts_socket: record.ts_socket.unix_nanos(),
         first_update_id: None,
         last_update_id: None,
@@ -1225,6 +1231,38 @@ mod tests {
             .downcast_ref::<arrow::array::ListArray>()
             .unwrap();
         assert_eq!(bids.len(), 2);
+
+        std::fs::remove_dir_all(&input).unwrap();
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn venue_event_time_reaches_the_exchange_column() {
+        // DEPTH_FRAME carries E=1700000000000 (millis); the normalized row
+        // must carry it as nanoseconds instead of leaving ts_exchange null.
+        let input = temp_directory("exchange-time");
+        let output = temp_directory("exchange-time-out");
+        write_capture(
+            &input,
+            vec![record(
+                0,
+                Channel::BookDiff,
+                1_700_000_000_100_000_000,
+                DEPTH_FRAME.as_bytes().to_vec(),
+            )],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        let (batches, _) = read_table(&summary.files[0]);
+        let ts_exchange = batches[0]
+            .column_by_name("ts_exchange")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow::array::Int64Array>()
+            .unwrap();
+
+        assert!(ts_exchange.is_valid(0));
+        assert_eq!(ts_exchange.value(0), 1_700_000_000_000_000_000);
 
         std::fs::remove_dir_all(&input).unwrap();
         std::fs::remove_dir_all(&output).unwrap();
