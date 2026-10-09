@@ -193,6 +193,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `docs/execution-model.md` | The v1 fill/cost spec: conservative limit-maker fills, required fee tier (code open) |
 | `docs/benchmark-harness.md` | The v1 harness spec: config, canonical report, determinism rules (implemented in `astra-harness`) |
 | `docs/audit-2026-10-06.md` | Full-pipeline audit: method, 3 fixes, 13 ranked open findings, claim spot-check |
+| `research/` | Published research notes, built to `website/research/` by `website/build.py` |
 | `docs/failure-policy.md` | What each subcommand does with the same corruption (read off the code; unification open) |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |

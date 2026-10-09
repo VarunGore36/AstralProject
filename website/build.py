@@ -14,6 +14,12 @@ SRC = ROOT / "docs"
 OUT = ROOT / "website" / "docs"
 
 # (filename, nav label, page title, description)
+RESEARCH = [
+    ("001-taker-count-vs-volume.md", "Note 001", "Taker count is not volume",
+     "15,655 prints: count screams, volume shrugs."),
+]
+
+# (filename, nav label, page title, description)
 PAGES = [
     ("normalized-schema.md", "Schema", "Normalized event schema v1",
      "The Parquet format the normalizer targets."),
@@ -61,20 +67,20 @@ TEMPLATE = """<!DOCTYPE html>
       <nav class="site-nav doc-nav" aria-label="Docs">
 {navlinks}
       </nav>
-      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/{src}" target="_blank" rel="noopener">Source .md</a>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/{srcdir}/{src}" target="_blank" rel="noopener">Source .md</a>
     </div>
   </header>
 
   <main id="main">
     <section class="section doc-page" aria-labelledby="doc-title">
       <div class="wrap narrow">
-        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <p class="eyebrow reveal"><a href="{crumb_href}">← {crumb_label}</a></p>
         <article class="doc-prose">
 {body}
         </article>
         <div class="oss-cta reveal">
           <a class="btn btn-ghost" href="../index.html">← Back to site</a>
-          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/{src}" target="_blank" rel="noopener">Source .md on GitHub</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/{srcdir}/{src}" target="_blank" rel="noopener">Source .md on GitHub</a>
         </div>
       </div>
     </section>
@@ -100,6 +106,8 @@ TEMPLATE = """<!DOCTYPE html>
 
 def build() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    ROUT = ROOT / "website" / "research"
+    ROUT.mkdir(parents=True, exist_ok=True)
     navlinks = "\n".join(
         f'        <a href="{name[:-3]}.html">{label}</a>' for name, label, _, _ in PAGES
     )
@@ -109,10 +117,34 @@ def build() -> None:
             text, extensions=["fenced_code", "tables", "toc", "sane_lists"]
         )
         page = TEMPLATE.format(
-            title=title, desc=desc, navlinks=navlinks, body=body, src=name
+            title=title,
+            desc=desc,
+            navlinks=navlinks,
+            body=body,
+            src=name,
+            srcdir="docs",
+            crumb_href="../index.html#opensource",
+            crumb_label="Docs",
         )
         (OUT / (pathlib.Path(name).stem + ".html")).write_text(page)
         print(f"wrote website/docs/{pathlib.Path(name).stem}.html")
+    for name, _, title, desc in RESEARCH:
+        text = (ROOT / "research" / name).read_text()
+        body = markdown.markdown(
+            text, extensions=["fenced_code", "tables", "toc", "sane_lists"]
+        )
+        page = TEMPLATE.format(
+            title=title,
+            desc=desc,
+            navlinks=navlinks,
+            body=body,
+            src=name,
+            srcdir="research",
+            crumb_href="../index.html#research",
+            crumb_label="Research",
+        )
+        (ROUT / (pathlib.Path(name).stem + ".html")).write_text(page)
+        print(f"wrote website/research/{pathlib.Path(name).stem}.html")
 
 
 if __name__ == "__main__":

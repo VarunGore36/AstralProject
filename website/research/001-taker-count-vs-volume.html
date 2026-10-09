@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Taker count is not volume — Astral Project</title>
+  <meta name="description" content="15,655 prints: count screams, volume shrugs." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+        <a href="failure-policy.html">Policy</a>
+        <a href="benchmark-harness.html">Bench</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/001-taker-count-vs-volume.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-001-taker-count-imbalance-is-not-volume-imbalance">Research note 001: taker count imbalance is not volume imbalance</h1>
+<p>Date: 2026-10-09 · Status: <strong>observational, single 10-minute window.</strong>
+This note makes no profitability claim. It documents one measurement that
+survived contact with the data and one naive signal that did not deserve to.</p>
+<h2 id="question">Question</h2>
+<p>Do bursts of taker buy prints on Binance BTC/USDT spot constitute executable
+buy pressure — or does the imbalance evaporate when weighted by size?</p>
+<h2 id="dataset">Dataset</h2>
+<ul>
+<li>15,655 trade prints, Binance spot BTC/USDT, 10 minutes from 15:56:14 UTC.</li>
+<li>Capture <code>4327ed7c-da07-4018-9b77-19936411bba0</code>, 15,655/15,655 frames,
+  zero gaps, <code>duration_elapsed</code>, verdict <code>healthy</code> on audit.</li>
+<li>Normalized to one Parquet file (15,655 rows, exact decimals); bucketed
+  per minute by venue timestamp in the analysis step.</li>
+<li>Limitation stated up front: one venue, ten minutes, no out-of-sample
+  window. The slice is not archived with this note — the method below plus
+  any 10-minute slice reproduces the <em>procedure</em>, not these numbers.</li>
+</ul>
+<h2 id="method">Method</h2>
+<p><code>astra-record capture</code> (trade channel) → <code>check</code> (healthy) →
+<code>astra-normalize</code> → per-minute buy share by print count and by volume.
+No strategy, no fills, no fees in this note — it measures the signal's raw
+material, which is where the naive version already fails.</p>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Minute</th>
+<th>Prints</th>
+<th>Buy share (count)</th>
+<th>Buy share (volume)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>1,408</td>
+<td>87.6%</td>
+<td>87.7%</td>
+</tr>
+<tr>
+<td>1</td>
+<td>889</td>
+<td>83.7%</td>
+<td>66.8%</td>
+</tr>
+<tr>
+<td>2</td>
+<td>921</td>
+<td>43.4%</td>
+<td>57.1%</td>
+</tr>
+<tr>
+<td>3</td>
+<td>951</td>
+<td>12.8%</td>
+<td>31.9%</td>
+</tr>
+<tr>
+<td>4</td>
+<td>2,170</td>
+<td>15.5%</td>
+<td>16.4%</td>
+</tr>
+<tr>
+<td>5</td>
+<td>2,012</td>
+<td>46.9%</td>
+<td>43.3%</td>
+</tr>
+<tr>
+<td>6</td>
+<td>2,445</td>
+<td>56.9%</td>
+<td>42.2%</td>
+</tr>
+<tr>
+<td>7</td>
+<td>1,469</td>
+<td>46.7%</td>
+<td>51.9%</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1,866</td>
+<td>95.3%</td>
+<td>80.1%</td>
+</tr>
+<tr>
+<td>9</td>
+<td>1,524</td>
+<td>92.7%</td>
+<td>88.8%</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>15,655</strong></td>
+<td><strong>57.8%</strong></td>
+<td><strong>50.6%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>46.931 BTC bought vs 45.776 BTC sold across the window.</p>
+<h2 id="reading">Reading</h2>
+<p>By count, the tape screams: minutes swing from 12.8% to 95.3% buys, and a
+count-based "buy pressure" signal would flip sides repeatedly. By volume,
+the same window sums to 50.6% buys — effectively flat. The imbalance lives
+in small prints; size does not follow count.</p>
+<p>The tradability consequence is immediate and needs no backtest: a signal
+that flips this often pays taker fees on every flip. At 5 bps per side, a
+strategy trading each minute's imbalance would need moves an order of
+magnitude larger than anything visible here just to cover its own churn.
+The signal dies at the cost model, before execution is even modeled. That
+is a publishable "no" — exactly the kind this project exists to produce.</p>
+<h2 id="what-would-strengthen-or-kill-this">What would strengthen or kill this</h2>
+<ul>
+<li>A 24h+ window across venues (does the count/volume split persist?).</li>
+<li>Running the minute-flip rule through <code>exec-v1</code> with fee tiers to put a
+  measured number on the churn death.</li>
+<li>Trade-size distribution per minute (are the small prints retail flow? —
+  unanswerable from public prints alone; stated, not speculated).</li>
+</ul>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/001-taker-count-vs-volume.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
