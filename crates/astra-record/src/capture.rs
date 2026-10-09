@@ -225,6 +225,11 @@ pub fn init_capture(
     instrument: &Instrument,
     channel: Channel,
 ) -> Result<CaptureManifest, RecordError> {
+    // Same guard as Session::open: rewriting the manifest under existing
+    // chunks orphans them from their counts and invites sequence collisions.
+    if has_chunks(output)? {
+        return Err(RecordError::CaptureExists(output.to_owned()));
+    }
     std::fs::create_dir_all(output.join(FRAMES_DIR))?;
 
     let manifest = CaptureManifest {
@@ -956,6 +961,37 @@ mod tests {
         assert_eq!(manifest.stop_reason.as_deref(), Some(STOP_IN_PROGRESS));
 
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn init_refuses_a_directory_that_already_holds_chunks() {
+        let output = temp_directory("init-used");
+        init_capture(&output, &instrument(), Channel::BookDiff).unwrap();
+
+        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        writer
+            .append(&CaptureRecord {
+                seq: 0,
+                instrument: instrument(),
+                channel: Channel::BookDiff,
+                ts_socket: Timestamp::from_unix_nanos(0),
+                ts_exchange: None,
+                payload: b"{}".to_vec(),
+                flags: CaptureFlags::NONE,
+            })
+            .unwrap();
+        writer.finish().unwrap();
+
+        assert!(matches!(
+            init_capture(&output, &instrument(), Channel::BookDiff),
+            Err(crate::error::RecordError::CaptureExists(_))
+        ));
+        // An empty directory still initializes: the guard targets chunks.
+        let fresh = temp_directory("init-fresh");
+        assert!(init_capture(&fresh, &instrument(), Channel::BookDiff).is_ok());
+
+        std::fs::remove_dir_all(&output).unwrap();
+        std::fs::remove_dir_all(&fresh).unwrap();
     }
 
     #[test]
