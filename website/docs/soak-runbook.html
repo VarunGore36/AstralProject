@@ -86,7 +86,9 @@ after — they are not the soak.</p>
 <pre><code class="language-sh">ops/soak.sh start
 </code></pre>
 <p>This builds, then launches four streams under <code>nohup</code> (Binance spot BTC+ETH,
-Bybit spot+perp BTC) for 259,200 seconds with generous reconnects. Record:</p>
+Bybit spot+perp BTC) for 259,200 seconds with generous reconnects. Captures
+land in <code>data/soak-&lt;today's date&gt;/</code>, overridable per run with <code>SOAK_DIR</code>
+(e.g. <code>SOAK_DIR=data/soak-retry-1 ops/soak.sh start</code>). Record:</p>
 <ul>
 <li>the commit hash, the VPS provider/region/specs, and the start timestamp</li>
 <li>the PIDs printed per stream</li>

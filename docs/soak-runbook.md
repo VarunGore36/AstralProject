@@ -56,7 +56,9 @@ ops/soak.sh start
 ```
 
 This builds, then launches four streams under `nohup` (Binance spot BTC+ETH,
-Bybit spot+perp BTC) for 259,200 seconds with generous reconnects. Record:
+Bybit spot+perp BTC) for 259,200 seconds with generous reconnects. Captures
+land in `data/soak-<today's date>/`, overridable per run with `SOAK_DIR`
+(e.g. `SOAK_DIR=data/soak-retry-1 ops/soak.sh start`). Record:
 
 - the commit hash, the VPS provider/region/specs, and the start timestamp
 - the PIDs printed per stream

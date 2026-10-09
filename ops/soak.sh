@@ -2,7 +2,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-SOAK="data/soak-2026-09-29"
+SOAK="${SOAK_DIR:-data/soak-$(date +%Y-%m-%d)}"
 BIN="./target/debug/astra-record"
 DURATION=259200
 RECONNECTS=10000
