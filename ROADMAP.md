@@ -31,11 +31,20 @@ Coinbase probed: `level2` needs authentication (no book without API keys),
 now captured live. Normalization implemented for `book_diff`, `trade`, and `top_of_book`
 (exact decimals, whole-batch validation, Hive-partitioned output, bundle
 expansion with print_index) and proven byte-deterministic
-in CI and live. Replay engine built through a CLI with a `book-top` demo
-strategy (`book_diff` + `trade` with bundle expansion + `top_of_book`,
-gap passthrough, per-type counters); live hashes seed-independent across ten
+in CI and live. Replay engine built through a CLI with `book-top` and
+`trade-tally` strategies (book diffs, trade prints with bundle expansion,
+top-of-book, gap passthrough with book-breaking semantics, per-type
+counters); live hashes seed-independent across ten
 repetitions. The ten-replay
 ritual stands performed; cross-machine proof awaits a second machine.
+Conservative execution (`exec-v1`: limit-maker fills on trade-print-through,
+required fee tiers, gaps void, plus a probe CLI) and a benchmark harness
+(one replay pass plus probe set into a canonical hashed report, with a local
+registry whose `verify` reproduces runs exactly) are built and tested; a
+Python bindings foothold (`astra` module: exact decimals, clock) is
+embedded-tested with packaging open. A full-pipeline audit with ranked
+findings (mostly closed since) and one published research note (taker count
+vs volume, negative result) round out the loop so far.
 
 Order-book semantics match the venue's documented procedure exactly: events with
 `u <= lastUpdateId` are discarded, and `U > lastUpdateId + 1` means events were
