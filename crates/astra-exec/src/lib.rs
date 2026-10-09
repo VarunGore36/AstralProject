@@ -39,6 +39,7 @@ pub struct LimitOrder {
 pub struct Print {
     pub seq: u64,
     pub price: Fixed,
+    pub quantity: Fixed,
 }
 
 /// Replay output in stream order. Prints come from normalized trade rows;
@@ -109,10 +110,11 @@ pub fn simulate(
                 });
             }
             MarketEvent::Print(print) => {
-                // Corrupt prints (non-positive prices) can never fill: a fill
-                // needs a real counterparty at a real price. Skipped, not
-                // filled and not fatal — the stream may still hold evidence.
-                if print.price.raw() <= 0 {
+                // Corrupt prints (non-positive prices or quantities) can
+                // never fill: a fill needs a real counterparty trading a real
+                // size at a real price. Skipped, not filled and not fatal —
+                // the stream may still hold evidence.
+                if print.price.raw() <= 0 || print.quantity.raw() <= 0 {
                     continue;
                 }
                 let through = match order.side {
@@ -253,6 +255,7 @@ impl astra_replay::Strategy for TradeCollector {
         self.events.push(MarketEvent::Print(Print {
             seq: event.seq,
             price: event.trade.price,
+            quantity: event.trade.quantity,
         }));
         self.trades += 1;
     }
@@ -319,6 +322,7 @@ mod tests {
                 MarketEvent::Print(Print {
                     seq: index as u64,
                     price: price.parse().unwrap(),
+                    quantity: Fixed::ONE,
                 })
             })
             .collect()
@@ -376,16 +380,30 @@ mod tests {
 
     #[test]
     fn corrupt_prints_are_skipped_never_filled() {
-        // A hostile print at a non-positive price would "trade through" any
-        // buy limit. It must be skipped: fills need real counterparties.
+        // Hostile prints at non-positive prices or quantities would "trade
+        // through" any limit. They must be skipped: fills need real
+        // counterparties trading real size.
+        let qty = |raw: i128| Fixed::from_raw(raw);
         let events = vec![
             MarketEvent::Print(Print {
                 seq: 0,
                 price: Fixed::from_raw(-5),
+                quantity: qty(5),
             }),
             MarketEvent::Print(Print {
                 seq: 1,
                 price: Fixed::ZERO,
+                quantity: qty(5),
+            }),
+            MarketEvent::Print(Print {
+                seq: 2,
+                price: price("50.00000000"),
+                quantity: Fixed::ZERO,
+            }),
+            MarketEvent::Print(Print {
+                seq: 3,
+                price: price("50.00000000"),
+                quantity: qty(-5),
             }),
         ];
 
@@ -411,15 +429,18 @@ mod tests {
 
     #[test]
     fn a_gap_voids_even_when_a_later_print_would_fill() {
+        let qty = Fixed::ONE;
         let events = vec![
             MarketEvent::Print(Print {
                 seq: 0,
                 price: price("101.00000000"),
+                quantity: qty,
             }),
             MarketEvent::Gap,
             MarketEvent::Print(Print {
                 seq: 2,
                 price: price("99.00000000"),
+                quantity: qty,
             }),
         ];
 
