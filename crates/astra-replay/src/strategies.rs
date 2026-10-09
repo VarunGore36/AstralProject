@@ -233,6 +233,49 @@ mod tests {
         assert_eq!(ctx.signals().len(), 1);
     }
 
+    #[test]
+    fn a_snapshot_heals_a_broken_book_top() {
+        use astra_book::BookSnapshot;
+
+        let mut strategy = BookTop::new();
+        let mut ctx = context();
+
+        strategy.on_book_diff(
+            &diff_event(0, 100, 105, vec![level("100.00000000", "1")], vec![]),
+            &mut ctx,
+        );
+        strategy.on_gap(
+            &GapMarker {
+                started_at: Timestamp::from_unix_nanos(0),
+                ended_at: Timestamp::from_unix_nanos(1),
+                attempts: 1,
+                reason: "venue_close".to_owned(),
+            },
+            &mut ctx,
+        );
+        assert!(strategy.is_broken());
+
+        strategy.on_snapshot(
+            &SnapshotEvent {
+                seq: 2,
+                ts_socket: Timestamp::from_unix_nanos(2),
+                snapshot: BookSnapshot {
+                    last_update_id: 200,
+                    bids: vec![level("99.00000000", "5")],
+                    asks: vec![level("101.00000000", "5")],
+                },
+            },
+            &mut ctx,
+        );
+
+        assert!(!strategy.is_broken());
+        assert_eq!(ctx.signals().len(), 2);
+        assert_eq!(
+            strategy.book().book().best_bid().unwrap(),
+            level("99.00000000", "5")
+        );
+    }
+
     fn trade_event(seq: u64, side: Option<&str>) -> TradeEvent {
         TradeEvent {
             seq,
