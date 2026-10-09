@@ -3,7 +3,7 @@ use std::path::Path;
 use astra_book::{
     ApplyDecision, BookDiff, BookError, BookSnapshot, Reconstructor, UpdateSpan, compare_top_levels,
 };
-use astra_types::CaptureFlags;
+use astra_types::{CaptureFlags, GapMarker};
 
 use crate::capture::FRAMES_DIR;
 use crate::error::RecordError;
@@ -140,6 +140,11 @@ fn load_events(input: &Path) -> Result<(Vec<(UpdateSpan, BookDiff)>, u64), Recor
 
     for record in store::read_all(&input.join(FRAMES_DIR))? {
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
+            // A gap marker no parser understands hides the shape of its hole;
+            // fail loud like every other processor instead of skipping blind.
+            if serde_json::from_slice::<GapMarker>(&record.payload).is_err() {
+                return Err(crate::error::RecordError::UndecodableGap { seq: record.seq });
+            }
             continue;
         }
         venue_frames += 1;
@@ -180,6 +185,9 @@ fn load_references(reference: &Path) -> Result<(Vec<BookSnapshot>, u64), RecordE
 
     for record in store::read_all(&reference.join(FRAMES_DIR))? {
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
+            if serde_json::from_slice::<GapMarker>(&record.payload).is_err() {
+                return Err(crate::error::RecordError::UndecodableGap { seq: record.seq });
+            }
             continue;
         }
         venue_frames += 1;
@@ -434,6 +442,115 @@ mod tests {
             manifest["frames_written"] = serde_json::json!(1);
             std::fs::write(&path, serde_json::to_string(&manifest).unwrap()).unwrap();
         }
+
+        let _ = std::fs::remove_dir_all(&input);
+        let _ = std::fs::remove_dir_all(&reference);
+    }
+
+    #[test]
+    fn undecodable_gap_markers_abort_the_comparison() {
+        let input =
+            std::env::temp_dir().join(format!("astra-compare-poison-input-{}", std::process::id()));
+        let reference =
+            std::env::temp_dir().join(format!("astra-compare-poison-ref-{}", std::process::id()));
+        for dir in [&input, &reference] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        let instrument = astra_types::Instrument::new(
+            astra_types::Venue::Binance,
+            astra_types::MarketType::Spot,
+            astra_types::Symbol::new("BTC/USDT").unwrap(),
+        );
+        let venue_record =
+            |seq: u64, channel: astra_types::Channel, payload: &[u8]| astra_types::CaptureRecord {
+                seq,
+                instrument: instrument.clone(),
+                channel,
+                ts_socket: astra_types::Timestamp::from_unix_nanos(seq as i64),
+                ts_exchange: None,
+                payload: payload.to_vec(),
+                flags: astra_types::CaptureFlags::NONE,
+            };
+        let gap_record = |seq: u64, payload: Vec<u8>| astra_types::CaptureRecord {
+            seq,
+            instrument: instrument.clone(),
+            channel: astra_types::Channel::BookDiff,
+            ts_socket: astra_types::Timestamp::from_unix_nanos(seq as i64),
+            ts_exchange: None,
+            payload,
+            flags: astra_types::CaptureFlags::SYNTHETIC
+                .union(astra_types::CaptureFlags::SEQUENCE_GAP)
+                .union(astra_types::CaptureFlags::UNRELIABLE),
+        };
+        let write_all = |dir: &std::path::Path, records: Vec<astra_types::CaptureRecord>| {
+            std::fs::create_dir_all(dir.join(crate::capture::FRAMES_DIR)).unwrap();
+            let mut writer =
+                crate::store::ChunkWriter::open(dir.join(crate::capture::FRAMES_DIR), 100).unwrap();
+            for record in &records {
+                writer.append(record).unwrap();
+            }
+            writer.finish().unwrap();
+            let venue_frames = records
+                .iter()
+                .filter(|record| !record.flags.contains(astra_types::CaptureFlags::SYNTHETIC))
+                .count() as u64;
+            crate::capture::write_manifest(
+                dir,
+                &astra_types::CaptureManifest {
+                    schema_version: astra_types::SCHEMA_VERSION,
+                    capture_id: astra_types::CaptureId::new("compare-test"),
+                    created_at: astra_types::Timestamp::from_unix_nanos(0),
+                    instrument: instrument.clone(),
+                    channel: astra_types::Channel::BookDiff,
+                    frames_written: venue_frames,
+                    stop_reason: None,
+                },
+            )
+            .unwrap();
+        };
+        let marker = serde_json::to_vec(&astra_types::GapMarker {
+            started_at: astra_types::Timestamp::from_unix_nanos(1),
+            ended_at: astra_types::Timestamp::from_unix_nanos(2),
+            attempts: 0,
+            reason: "venue_close".to_owned(),
+        })
+        .unwrap();
+        write_all(
+            &input,
+            vec![
+                venue_record(
+                    0,
+                    astra_types::Channel::BookDiff,
+                    br#"{"e":"depthUpdate","s":"BTCUSDT","U":100,"u":105,"b":[],"a":[]}"#,
+                ),
+                gap_record(1, marker),
+            ],
+        );
+        write_all(
+            &reference,
+            vec![venue_record(
+                0,
+                astra_types::Channel::BookSnapshot,
+                br#"{"lastUpdateId":200,"bids":[],"asks":[]}"#,
+            )],
+        );
+        // A decodable marker passes through silently on a clean run.
+        assert!(compare(&input, &reference, 10, None).is_ok());
+
+        // Poison the reference side with an undecodable marker: appending a
+        // synthetic record leaves the venue count (and manifest) untouched.
+        let mut writer =
+            crate::store::ChunkWriter::open(reference.join(crate::capture::FRAMES_DIR), 100)
+                .unwrap();
+        writer
+            .append(&gap_record(1, b"not a gap marker".to_vec()))
+            .unwrap();
+        writer.finish().unwrap();
+
+        assert!(matches!(
+            compare(&input, &reference, 10, None),
+            Err(crate::error::RecordError::UndecodableGap { seq: 1 })
+        ));
 
         let _ = std::fs::remove_dir_all(&input);
         let _ = std::fs::remove_dir_all(&reference);
