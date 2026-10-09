@@ -14,3 +14,6 @@ thiserror = { workspace = true }
 [lib]
 name = "astra"
 path = "src/lib.rs"
+# Both targets: rlib keeps `cargo test` working, cdylib produces the
+# importable module (copied to astra.so; no maturin needed for local use).
+crate-type = ["cdylib", "rlib"]
