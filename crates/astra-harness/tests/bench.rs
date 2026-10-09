@@ -207,3 +207,27 @@ fn trade_tally_strategy_benchmarks_deterministically() {
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_tampered_registry_entry_fails_verification() {
+    use astra_harness::{record_run, run_benchmark, verify_run};
+
+    let dir = temp_directory("tamper-entry");
+    let registry = temp_directory("tamper-store");
+    write_capture(&dir);
+
+    let run = run_benchmark(&dir, CONFIG).unwrap();
+    record_run(&registry, CONFIG, &run).unwrap();
+    assert!(verify_run(&registry, &run.hash, &dir).unwrap());
+
+    // Rewrite the stored config with a different probe price: the re-run
+    // disagrees with the recorded hash, so verification fails closed.
+    let stored = registry.join(&run.hash).join("config.json");
+    let doctored = CONFIG.replace("100.00000000", "10.00000000");
+    std::fs::write(&stored, doctored).unwrap();
+
+    assert!(!verify_run(&registry, &run.hash, &dir).unwrap());
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&registry).unwrap();
+}

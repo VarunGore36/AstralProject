@@ -725,6 +725,7 @@ which equality broke).
 | Normalize reruns append, never overwrite | rerunning into one output dir duplicates rows (`part-N` continues); idempotency is fresh dirs, documented in the schema spec; finding 7 closed as documented | DOCUMENTED |
 | Used capture dirs refuse, not merge | starting a capture where chunks exist errors loudly (`CaptureExists`) instead of colliding sequence numbers; resume stays future work | GUARDED |
 | `init` refuses used dirs too | the same guard covers initialization, which rewrote manifests under existing chunks; fresh dirs initialize normally | GUARDED |
+| Tampered registry entries fail closed | rewriting a stored config changes the re-run, so verification compares unequal and returns false instead of trusting the directory name | TESTED |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |
 | Capture schema-version gate | `check`, `normalize`, and `replay` refuse manifests declaring a newer schema version instead of misreading them; one gate test per reader | GATED |
