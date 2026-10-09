@@ -5,6 +5,7 @@ members = [
     "crates/astra-exec",
     "crates/astra-harness",
     "crates/astra-normalize",
+    "crates/astra-python",
     "crates/astra-record",
     "crates/astra-replay",
     "crates/astra-types",

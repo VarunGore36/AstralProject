@@ -1,0 +1,16 @@
+[package]
+name = "astra-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+astra-types = { workspace = true }
+pyo3 = { version = "0.29", features = ["auto-initialize"] }
+thiserror = { workspace = true }
+
+[lib]
+name = "astra"
+path = "src/lib.rs"
