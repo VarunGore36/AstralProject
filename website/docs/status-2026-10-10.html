@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project status 2026-10-10 — Astral Project</title>
+  <meta name="description" content="Numbers, flowcharts, gates, and what ends the OSS." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+        <a href="failure-policy.html">Policy</a>
+        <a href="benchmark-harness.html">Bench</a>
+        <a href="status-2026-10-10.html">Status</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/status-2026-10-10.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="project-status-2026-10-10">Project status — 2026-10-10</h1>
+<p>Where the Astral Project stands, in numbers, diagrams, and gates. Every
+figure below is derived from the repository itself (commit messages, file
+birth dates, the test suite); sources are stated per figure so nothing here
+relies on memory.</p>
+<h2 id="headline-numbers">Headline numbers</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tests passing</td>
+<td>200, 0 failing</td>
+<td><code>cargo test --workspace</code>, 2026-10-09</td>
+</tr>
+<tr>
+<td>Clippy / fmt</td>
+<td>zero warnings / clean</td>
+<td>same run, <code>-D warnings</code></td>
+</tr>
+<tr>
+<td>Crates</td>
+<td>8 (record, book, types, normalize, replay, exec, harness, python)</td>
+<td>workspace members + birth dates below</td>
+</tr>
+<tr>
+<td>Spec/runbook docs</td>
+<td>9, all built to the site</td>
+<td><code>docs/</code> + <code>website/build.py</code></td>
+</tr>
+<tr>
+<td>Research notes published</td>
+<td>1 (negative result)</td>
+<td><code>research/001-*</code></td>
+</tr>
+<tr>
+<td>Commits on main</td>
+<td>100+ across 10 active days</td>
+<td><code>git log</code></td>
+</tr>
+<tr>
+<td>Live venues verified</td>
+<td>Binance + Bybit captures, Coinbase trades/tickers</td>
+<td>README verification record</td>
+</tr>
+<tr>
+<td>Open audit findings</td>
+<td>5 of 13 fully open (+2 post-audit bugs, both fixed)</td>
+<td><code>docs/audit-2026-10-06.md</code> follow-ups</td>
+</tr>
+</tbody>
+</table>
+<h2 id="growth">Growth</h2>
+<p><img alt="tests passing at documented milestones" src="../website/assets/tests.svg" /></p>
+<p>Test counts come from commit messages that state them (83 on 09-29, 114 on
+10-02, 139 on 10-05, 200 on 10-09) — milestones, not continuous sampling.
+The slope is real work, not test inflation: each jump arrived with the
+feature it covers (adversarial fixtures, replay events, exec/harness).</p>
+<p><img alt="commits per day" src="../website/assets/commits.svg" /></p>
+<p>Crate births (first commit touching each manifest — the project's actual
+assembly order): record + types 09-25, book 09-26, normalize 09-30,
+replay 10-02, exec 10-06, harness 10-08, python 10-09.</p>
+<h2 id="system-map">System map</h2>
+<pre><code class="language-mermaid">flowchart LR
+    A[Exchange WebSocket] --&gt; B[raw immutable frames]
+    B --&gt; C[compressed chunks&lt;br/&gt;2000/chunk · SHA-256 index]
+    C --&gt; D[normalised Parquet&lt;br/&gt;exact decimals · Hive partitions]
+    C --&gt; E[deterministic replay&lt;br/&gt;book-top · trade-tally]
+    E --&gt; G[exec-v1 fills&lt;br/&gt;print-through only]
+    G --&gt; H[benchmark harness&lt;br/&gt;one replay · N probes]
+    H --&gt; I[hashed report&lt;br/&gt;registry · verify]
+    D --&gt; J[research notes&lt;br/&gt;negatives first-class]
+    classDef done fill:#0d3b34,stroke:#5eead4,color:#e6edf3
+    classDef partial fill:#3a2f10,stroke:#fbbf24,color:#e6edf3
+    classDef missing fill:#1a1f2b,stroke:#4b5563,color:#8b949e
+    class A,B partial
+    class C,D,E,G,H,I,J done
+</code></pre>
+<h2 id="gate-funnel">Gate funnel</h2>
+<pre><code class="language-mermaid">flowchart TD
+    G1[Gate 1 — capture &amp; reconstruct&lt;br/&gt;code complete · evidence pending]
+    G2[Gate 2 — does it work&lt;br/&gt;exec built · calibration open]
+    G3[Gate 3 — useful research&lt;br/&gt;1 note · substantive note open]
+    G4[Gate 4 — others use it&lt;br/&gt;machinery ready · humans missing]
+    G1 --&gt;|72h soak + 2nd machine| G2
+    G2 --&gt;|shadow error small| G3
+    G3 --&gt;|one substantive note| G4
+    G4 --&gt;|5 users · 2 reproductions| G5[Beyond — defined by Gate 4]
+    classDef open fill:#3a2f10,stroke:#fbbf24,color:#e6edf3
+    class G1,G2,G3,G4 open
+</code></pre>
+<p>Each gate has a kill criterion in <code>ROADMAP.md</code> (10 bps model error, 3
+fruitless months, 6 userless months). The funnel is honest about what blocks
+each step: wall-clock evidence and other humans, both unhurriable by commits.</p>
+<h2 id="audit-closure-funnel">Audit closure funnel</h2>
+<p>13 findings entered; closed: overflow guards, soak backoff, manifest trust,
+schema gate, book errors, all CLI formats, trade sides, reconstruct gaps,
+sequence breaks, used-dir refusal, gap numbers, fuzz coverage — plus 2
+post-audit bugs (decimal range, corrupt fills). Open: soak-scale streaming,
+behavioral unification leftovers, Bybit snapshots (needs a citable source),
+null-row divergence (needs normalized-replay), normalize idempotency is
+documented, tail holes are documented. Full table in the audit doc.</p>
+<h2 id="what-ends-the-oss">What ends the OSS</h2>
+<p>Gates 1–3 closed: the soak and second-machine evidence (both need hardware
+outside this machine), calibration/shadow measurement (weeks of observation),
+the benchmark/registry/SDK loop (built except maturin packaging), and a
+substantive research note (needs a data window, e.g. funding carry once
+perp streams are reachable). Estimated 2–3 calendar months, ~4–6 weeks of
+it active building. The code is the short pole; evidence is the long one.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/status-2026-10-10.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

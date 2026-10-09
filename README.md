@@ -195,6 +195,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `docs/audit-2026-10-06.md` | Full-pipeline audit: method, 3 fixes, 13 ranked open findings, claim spot-check |
 | `research/` | Published research notes, built to `website/research/` by `website/build.py` |
 | `docs/failure-policy.md` | What each subcommand does with the same corruption (read off the code; unification open) |
+| `docs/status-2026-10-10.md` | Project status with charts, flowcharts, gates, and the OSS endgame (figures sourced from the repo) |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 

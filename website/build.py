@@ -37,6 +37,8 @@ PAGES = [
      "What each subcommand does with bad data."),
     ("benchmark-harness.md", "Bench", "Benchmark harness v1",
      "One capture plus one config into a hashed report."),
+    ("status-2026-10-10.md", "Status", "Project status 2026-10-10",
+     "Numbers, flowcharts, gates, and what ends the OSS."),
 ]
 
 TEMPLATE = """<!DOCTYPE html>
