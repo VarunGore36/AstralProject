@@ -87,10 +87,11 @@ pub fn check(input: &Path) -> Result<CheckReport, RecordError> {
                     expected: expected_seq,
                     found: record.seq,
                 });
-                expected_seq = record.seq + 1;
-            } else {
-                expected_seq += 1;
             }
+            // Wrapping, not checked: at u64::MAX the next expected value is
+            // unrepresentable, and any following record mismatches anyway. A
+            // hostile chunk with seq MAX must not panic the audit.
+            expected_seq = record.seq.wrapping_add(1);
 
             if record.flags.contains(CaptureFlags::SYNTHETIC) {
                 report.synthetic_records += 1;
@@ -426,6 +427,54 @@ mod tests {
             vec![SeqBreak {
                 expected: 2,
                 found: 5
+            }]
+        );
+        assert!(!report.is_healthy());
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn saturated_record_sequences_neither_panic_nor_hide_breaks() {
+        // Same overflow class as the update-ID guards: a hostile chunk
+        // carrying seq u64::MAX must audit (and report its break), not panic.
+        let output = temp_directory("seq-saturated");
+        std::fs::create_dir_all(output.join(FRAMES_DIR)).unwrap();
+
+        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 10).unwrap();
+        for seq in [0u64, u64::MAX] {
+            writer
+                .append(&CaptureRecord {
+                    seq,
+                    instrument: instrument(),
+                    channel: Channel::BookDiff,
+                    ts_socket: Timestamp::from_unix_nanos(0),
+                    ts_exchange: None,
+                    payload: depth_frame(100, 110),
+                    flags: CaptureFlags::NONE,
+                })
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let manifest = CaptureManifest {
+            schema_version: SCHEMA_VERSION,
+            capture_id: CaptureId::new("check-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: instrument(),
+            channel: Channel::BookDiff,
+            frames_written: 2,
+            stop_reason: None,
+        };
+        crate::capture::write_manifest(&output, &manifest).unwrap();
+
+        let report = check(&output).unwrap();
+
+        assert_eq!(
+            report.seq_breaks,
+            vec![SeqBreak {
+                expected: 1,
+                found: u64::MAX
             }]
         );
         assert!(!report.is_healthy());
