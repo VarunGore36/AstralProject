@@ -438,6 +438,12 @@ fn validate_trades(rows: &[TradeRow]) -> Result<(), NormalizeError> {
                     row.seq
                 )));
             }
+            if price > DECIMAL_MAX_RAW {
+                return Err(NormalizeError::Validation(format!(
+                    "price beyond Decimal128(20,8) at seq {}: {price}",
+                    row.seq
+                )));
+            }
         }
         if let Some(quantity) = row.quantity {
             if quantity < 0 {
@@ -1726,6 +1732,69 @@ mod tests {
         assert!(validate_trades(&[row(None)]).is_ok());
         assert!(matches!(
             validate_trades(&[row(Some("bid"))]),
+            Err(NormalizeError::Validation(_))
+        ));
+    }
+
+    #[test]
+    fn decimal_bounds_hold_on_every_table() {
+        // The book_diff boundary is covered by the 13-digit regression test;
+        // trade and top-of-book rows take the same gate, so they get the same
+        // proof instead of trust.
+        let trade = |price: i128, quantity: i128| TradeRow {
+            venue: "binance".to_owned(),
+            market_type: "spot".to_owned(),
+            symbol: "BTC/USDT".to_owned(),
+            channel: "trade".to_owned(),
+            ts_exchange: None,
+            ts_socket: 0,
+            trade_id: None,
+            price: Some(price),
+            quantity: Some(quantity),
+            side: Some("Buy".to_owned()),
+            print_index: 0,
+            capture_id: "test".to_owned(),
+            seq: 0,
+            flags: 0,
+            synthetic: false,
+            gap_reason: None,
+            gap_attempts: None,
+            gap_started: None,
+            gap_ended: None,
+        };
+        assert!(validate_trades(&[trade(100, 100)]).is_ok());
+        assert!(matches!(
+            validate_trades(&[trade(DECIMAL_MAX_RAW + 1, 1)]),
+            Err(NormalizeError::Validation(_))
+        ));
+        assert!(matches!(
+            validate_trades(&[trade(1, DECIMAL_MAX_RAW + 1)]),
+            Err(NormalizeError::Validation(_))
+        ));
+
+        let top = |bid: i128| TopBookRow {
+            venue: "binance".to_owned(),
+            market_type: "spot".to_owned(),
+            symbol: "BTC/USDT".to_owned(),
+            channel: "book_ticker".to_owned(),
+            ts_exchange: None,
+            ts_socket: 0,
+            best_bid: Some(bid),
+            best_bid_qty: Some(1),
+            best_ask: Some(2),
+            best_ask_qty: Some(1),
+            capture_id: "test".to_owned(),
+            seq: 0,
+            flags: 0,
+            synthetic: false,
+            gap_reason: None,
+            gap_attempts: None,
+            gap_started: None,
+            gap_ended: None,
+        };
+        assert!(validate_top_books(&[top(100)]).is_ok());
+        assert!(matches!(
+            validate_top_books(&[top(DECIMAL_MAX_RAW + 1)]),
             Err(NormalizeError::Validation(_))
         ));
     }
