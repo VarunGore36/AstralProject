@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dust plus whales — Astral Project</title>
+  <meta name="description" content="Median print $8; top 1% carries 46% of volume." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+        <a href="failure-policy.html">Policy</a>
+        <a href="benchmark-harness.html">Bench</a>
+        <a href="status-2026-10-10.html">Status</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/002-dust-plus-whales.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-002-the-tape-is-dust-plus-whales">Research note 002: the tape is dust plus whales</h1>
+<p>Date: 2026-10-10 · Status: <strong>observational, single 30-minute window.</strong>
+Companion to note 001 (count vs volume). Same honesty rules: no
+profitability claim, limits stated, method reproducible.</p>
+<h2 id="question">Question</h2>
+<p>What does the <em>size distribution</em> of taker prints imply for signal design?
+Note 001 showed count and volume disagree; this note measures how the
+volume itself is distributed.</p>
+<h2 id="dataset">Dataset</h2>
+<ul>
+<li>14,979 trade prints, Binance spot BTC/USDT, 30 minutes.</li>
+<li>One connection gap mid-capture (<code>venue_close</code>, single attempt), recorded
+  inline; audit verdict <code>healthy</code>, clean duration stop. The gap is part of
+  the evidence: the pipeline met reality once and marked it.</li>
+<li>Normalized to one Parquet file (14,979 exact-decimal rows).</li>
+</ul>
+<h2 id="results">Results</h2>
+<p>Overall: 7,911 buys (52.8%) vs 7,068 sells; 64.744 vs 62.826 BTC by volume
+(50.8% buys). Per-minute buy shares swing 7.7%–94.5% by count — the
+note-001 pattern persists over a 3x window.</p>
+<p>Size distribution (BTC per print):</p>
+<table>
+<thead>
+<tr>
+<th>Percentile</th>
+<th>Size (BTC)</th>
+<th>Approx. USD @ ~83k</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>median</td>
+<td>0.0001</td>
+<td>~$8</td>
+</tr>
+<tr>
+<td>p90</td>
+<td>0.0100</td>
+<td>~$830</td>
+</tr>
+<tr>
+<td>p99</td>
+<td>0.1840</td>
+<td>~$15,300</td>
+</tr>
+</tbody>
+</table>
+<p>The top 1% of prints by size carries <strong>46.4% of total volume</strong>.</p>
+<h2 id="reading">Reading</h2>
+<p>Half the prints are dust: the median print is ~$8, on which a 5 bps taker
+fee is under half a cent — individually executable, informationally
+worthless. Nearly half the volume arrives in 1% of prints. Any signal that
+weights prints equally (counts, or unweighted averages) lets dust outvote
+size by orders of magnitude; any signal that could matter must weight by
+size or filter by it, and then faces the note-001 problem (size shows no
+persistent side). Between dust that says nothing and size that says nothing
+consistently, the per-print tape offers no tradeable signal in this
+window — the third consecutive "no," each for a different measured reason.</p>
+<p>What would strengthen or overturn this: size-conditioned side persistence
+(do large prints lead short-horizon drift? — needs book context per print,
+not available in trade-only captures); multi-venue size distributions;
+fee-floor analysis per print-size bucket through the fill model.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/002-dust-plus-whales.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

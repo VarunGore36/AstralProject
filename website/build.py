@@ -17,6 +17,8 @@ OUT = ROOT / "website" / "docs"
 RESEARCH = [
     ("001-taker-count-vs-volume.md", "Note 001", "Taker count is not volume",
      "15,655 prints: count screams, volume shrugs."),
+    ("002-dust-plus-whales.md", "Note 002", "Dust plus whales",
+     "Median print $8; top 1% carries 46% of volume."),
 ]
 
 # (filename, nav label, page title, description)
