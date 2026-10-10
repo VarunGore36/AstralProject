@@ -16,6 +16,7 @@ pub struct ComparisonReport {
     pub events_applied: u64,
     pub events_skipped: u64,
     pub events_rejected: u64,
+    pub events_unparseable: u64,
     pub bootstrap_frames: u64,
     pub checked: u64,
     pub matched: u64,
@@ -34,7 +35,7 @@ pub fn compare(
     // produce a comparison against half a dataset.
     let manifest = crate::check::read_manifest(input)?;
     let reference_manifest = crate::check::read_manifest(reference)?;
-    let (events, venue_frames) = load_events(input)?;
+    let (events, venue_frames, unparseable) = load_events(input)?;
     if venue_frames != manifest.frames_written {
         return Err(RecordError::ManifestMismatch {
             claimed: manifest.frames_written,
@@ -54,12 +55,9 @@ pub fn compare(
         None => None,
     };
 
-    Ok(compare_streams(
-        &events,
-        &references,
-        levels,
-        bootstrap.as_ref(),
-    )?)
+    let mut report = compare_streams(&events, &references, levels, bootstrap.as_ref())?;
+    report.events_unparseable = unparseable;
+    Ok(report)
 }
 
 pub fn compare_streams(
@@ -134,9 +132,14 @@ pub fn compare_streams(
     Ok(report)
 }
 
-fn load_events(input: &Path) -> Result<(Vec<(UpdateSpan, BookDiff)>, u64), RecordError> {
+/// Loaded input events: the parsed stream, the venue frame count the
+/// manifest is checked against, and the frames no parser understood.
+type LoadedEvents = (Vec<(UpdateSpan, BookDiff)>, u64, u64);
+
+fn load_events(input: &Path) -> Result<LoadedEvents, RecordError> {
     let mut events = Vec::new();
     let mut venue_frames = 0u64;
+    let mut unparseable = 0u64;
 
     for record in store::read_all(&input.join(FRAMES_DIR))? {
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
@@ -152,12 +155,15 @@ fn load_events(input: &Path) -> Result<(Vec<(UpdateSpan, BookDiff)>, u64), Recor
             feed::update_span(record.instrument.venue(), record.channel, &record.payload),
             feed::book_diff(record.instrument.venue(), record.channel, &record.payload),
         ) else {
+            // Counted, not vanished: an auditor diffing two captures must be
+            // able to tell "nothing to compare" from "nothing there."
+            unparseable += 1;
             continue;
         };
         events.push((span, diff));
     }
 
-    Ok((events, venue_frames))
+    Ok((events, venue_frames, unparseable))
 }
 
 fn format_levels(levels: &[astra_book::Level]) -> String {
@@ -221,6 +227,7 @@ pub fn format_report(
     let _ = writeln!(out, "levels      {levels}");
     let _ = writeln!(out, "events      {}", report.events);
     let _ = writeln!(out, "applied     {}", report.events_applied);
+    let _ = writeln!(out, "unparseable {}", report.events_unparseable);
     let _ = writeln!(out, "skipped     {}", report.events_skipped);
     let _ = writeln!(out, "rejected    {}", report.events_rejected);
     let _ = writeln!(out, "bootstrap   {}", report.bootstrap_frames);
@@ -561,6 +568,7 @@ mod tests {
         let report = ComparisonReport {
             events: 300,
             events_applied: 300,
+            events_unparseable: 2,
             bootstrap_frames: 1,
             checked: 150,
             matched: 149,
@@ -582,6 +590,7 @@ mod tests {
             "levels      10",
             "events      300",
             "applied     300",
+            "unparseable 2",
             "checks      150",
             "matched     149",
             "mismatched  1",

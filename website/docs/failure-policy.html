@@ -106,7 +106,7 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <td>stored verbatim, unchecked</td>
 <td>skip (<code>unchecked</code>, stays healthy alone)</td>
 <td>skip (<code>frames_without_a_book</code>)</td>
-<td>skip, uncounted</td>
+<td>counted (<code>events_unparseable</code>)</td>
 <td>null-row</td>
 <td>skip (<code>skipped_unparseable</code>)</td>
 </tr>
@@ -178,8 +178,9 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <h2 id="rules-for-changing-this-table">Rules for changing this table</h2>
 <ol>
 <li>Unify toward fail-loud for corruption (abort or unhealthy), never toward
-   silent skipping. <code>compare</code>'s silent synthetic-skip is the divergence that
-   most deserves removal next.</li>
+   silent skipping. The remaining quiet corner is <code>compare</code> silently
+   skipping unparseable venue frames without even counting them — every
+   other reader counts what it skips.</li>
 <li>The null-row vs skip divergence (normalize keeps, replay skips) stands
    until normalized-replay exists to need one answer.</li>
 <li>Any behavior change here updates this table, the subcommand's golden
