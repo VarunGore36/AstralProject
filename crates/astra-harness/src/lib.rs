@@ -348,6 +348,19 @@ pub fn list_runs(registry: &Path) -> Result<Vec<RunSummary>, HarnessError> {
     Ok(runs)
 }
 
+/// Write report bytes to `output`, creating parent directories first like
+/// every other writer in this workspace. A missing directory is operator
+/// error in path choice, not in data — it must not fail the run.
+pub fn write_report_file(output: &Path, bytes: &[u8]) -> Result<(), HarnessError> {
+    if let Some(parent) = output.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(output, bytes)?;
+    Ok(())
+}
+
 /// Render a benchmark run report exactly as the CLI prints it.
 ///
 /// Golden-tested with the other report printers.
@@ -556,5 +569,26 @@ mod tests {
             false,
         );
         assert!(text.contains("verdict     MISMATCH, see above"), "{text}");
+    }
+
+    #[test]
+    fn report_writes_create_their_parents() {
+        let root =
+            std::env::temp_dir().join(format!("astra-harness-parents-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let deep = root.join("a").join("b").join("report.json");
+
+        write_report_file(&deep, b"{}").unwrap();
+        assert_eq!(std::fs::read(&deep).unwrap(), b"{}");
+
+        // A bare filename (no parent) still writes in place.
+        let here =
+            std::env::temp_dir().join(format!("astra-harness-bare-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&here);
+        write_report_file(&here, b"{}").unwrap();
+        assert!(here.is_file());
+
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::remove_file(&here).unwrap();
     }
 }

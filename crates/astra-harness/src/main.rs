@@ -72,7 +72,8 @@ fn run_benchmark(args: RunArgs) -> Result<(), String> {
     let config = std::fs::read_to_string(&args.config).map_err(|error| error.to_string())?;
     let run =
         astra_harness::run_benchmark(&args.input, &config).map_err(|error| error.to_string())?;
-    std::fs::write(&args.output, &run.bytes).map_err(|error| error.to_string())?;
+    astra_harness::write_report_file(&args.output, &run.bytes)
+        .map_err(|error| error.to_string())?;
 
     print!(
         "{}",
