@@ -720,6 +720,7 @@ which equality broke).
 | Canonical sides enforced at validation | non-null trade sides must already be Buy/Sell (parsers fail closed upstream); anything else stops the batch instead of laundering a future parser bug | ENFORCED |
 | BookTop breaks like the book | gaps and venue discontinuities silence `book-top` until a snapshot heals it, per the replay design contract; post-gap diffs emit nothing; reworked regression test | ENFORCED |
 | Snapshot heal path tested | a broken `book-top` resumes emitting after a fresh snapshot with the snapshot's levels; break and heal both covered | TESTED |
+| Arithmetic overflow fails loudly | absurd size at max fee tier overflows instead of wrapping into a tiny fee; `ArithmeticOverflow` names it | TESTED |
 | Registry lists distinct runs sorted | two different configs recorded side by side list in hash order with correct counts; listing is stable, not incidental | TESTED |
 | Verify hashes are validated before joining | `verify` refuses anything that is not a 64-char lowercase report hash, so traversal inputs can never escape the registry directory; well-formed misses fail on I/O instead | GUARDED |
 | Non-UTF8 registry entries skipped | directory names that cannot be hashes (non-UTF8 bytes) list as nothing instead of phantom empty-hash entries | GUARDED |

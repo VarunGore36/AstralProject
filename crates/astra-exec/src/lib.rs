@@ -502,6 +502,22 @@ mod tests {
     }
 
     #[test]
+    fn arithmetic_overflow_fails_loudly() {
+        // Absurd size at max fee tier overflows fixed-point math: the error
+        // must name overflow, never wrap into a cheerful tiny fee.
+        let events = prints(&["1000000.00000000"]);
+        let order = LimitOrder {
+            side: Side::Buy,
+            price: "1000000.00000000".parse().unwrap(),
+            quantity: "100000000000000000000.00000000".parse().unwrap(),
+        };
+        assert!(matches!(
+            simulate(&order, u32::MAX, &events),
+            Err(ExecError::ArithmeticOverflow)
+        ));
+    }
+
+    #[test]
     fn non_positive_orders_are_rejected_not_simulated() {
         let events = prints(&["1.00000000"]);
 
