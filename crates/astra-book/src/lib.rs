@@ -59,6 +59,8 @@ pub enum BookError {
     InvalidPrice(Fixed),
     #[error("book update has a negative quantity: {0}")]
     InvalidQuantity(Fixed),
+    #[error("snapshot crosses: best bid {0} at or above best ask {1}")]
+    CrossedSnapshot(Fixed, Fixed),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -80,6 +82,22 @@ impl OrderBook {
         }
         for level in &snapshot.asks {
             self.set_level(Side::Ask, level)?;
+        }
+        // Venue snapshots are settled states: a crossed one is corrupt data,
+        // not a transient like mid-stream crossing can be. Refuse it rather
+        // than bootstrapping a book that starts broken.
+        if self.is_crossed() {
+            let bid = self
+                .best_bid()
+                .map(|level| level.price)
+                .unwrap_or(Fixed::ZERO);
+            let ask = self
+                .best_ask()
+                .map(|level| level.price)
+                .unwrap_or(Fixed::ZERO);
+            self.bids.clear();
+            self.asks.clear();
+            return Err(BookError::CrossedSnapshot(bid, ask));
         }
         Ok(())
     }
@@ -488,6 +506,19 @@ mod tests {
         assert_eq!(book.best_bid().unwrap(), level("100.00000000", "1"));
         assert_eq!(book.bids_len(), 2);
         assert_eq!(book.asks_len(), 2);
+    }
+
+    #[test]
+    fn a_crossed_snapshot_is_refused_with_nothing_loaded() {
+        let mut book = OrderBook::new();
+        let mut crossed = snapshot(50);
+        crossed.asks = vec![level("90.00000000", "1")];
+
+        assert!(matches!(
+            book.load_snapshot(&crossed),
+            Err(BookError::CrossedSnapshot(_, _))
+        ));
+        assert!(book.is_empty());
     }
 
     #[test]
