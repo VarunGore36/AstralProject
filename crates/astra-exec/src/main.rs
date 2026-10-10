@@ -21,6 +21,10 @@ struct Cli {
     /// Maker fee in basis points. Required: no silent default.
     #[arg(long, value_name = "BPS")]
     fee_bps: u32,
+    /// Replay seed. The collector ignores randomness, so any seed replays
+    /// identically — the flag exists to say so explicitly, not by default.
+    #[arg(long, value_name = "SEED", default_value_t = 7)]
+    seed: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -74,8 +78,8 @@ fn run(cli: Cli) -> Result<(), String> {
         quantity: cli.quantity.0,
     };
 
-    let report =
-        probe_capture(&cli.input, 7, &order, cli.fee_bps).map_err(|error| error.to_string())?;
+    let report = probe_capture(&cli.input, cli.seed, &order, cli.fee_bps)
+        .map_err(|error| error.to_string())?;
     let side = match cli.side {
         SideArg::Buy => "buy",
         SideArg::Sell => "sell",
