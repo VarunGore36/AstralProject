@@ -19,6 +19,11 @@ determination later.
 Historical research and simulation only. No execution, no trading, no capital.
 A rigorous "this has no edge" is a successful result here.
 
+**New here?** Read [Status](#status) (one paragraph), run the
+[full loop](#the-full-loop-six-commands) (six commands, copy-paste), then
+check any claim in the [verification record](#verification-record) —
+every row states its evidence and its limits.
+
 ## Contents
 
 - [Status](#status)
@@ -35,6 +40,7 @@ A rigorous "this has no edge" is a successful result here.
 - [Capture layout](#capture-layout)
 - [Chunk format](#chunk-format)
 - [Quickstart](#quickstart)
+  - [The full loop (six commands)](#the-full-loop-six-commands)
 - [Feeds](#feeds)
 - [Known limitations](#known-limitations)
 - [Verification record](#verification-record)
@@ -466,7 +472,7 @@ the feed cannot be kept alive, and records which of those happened in the
 manifest. `--url` overrides the derived feed for local testing.
 
 A dropped connection is re-established up to `--max-reconnects` times (default
-5) with exponential backoff, and every reconnection writes a gap record. Pass
+5) after a fixed 250ms wait, and every reconnection writes a gap record. Pass
 `--max-reconnects 0` to stop at the first drop instead.
 
 Capture two channels over one connection, each landing in its own capture dir
@@ -494,10 +500,46 @@ flowchart TD
     D -->|sequence jumps| E[write gap record first, then the frame]
     E --> B
     B -->|close, error, or limit reached| F{reconnects left?}
-    F -->|yes| G[back off, reconnect, write gap record]
+    F -->|yes| G[wait 250ms, reconnect, write gap record]
     G --> B
     F -->|no| H[finish chunks, write manifest with stop reason]
 ```
+
+### The full loop (six commands)
+
+Record, audit, normalize, replay, probe, and benchmark one capture —
+everything below runs locally with no keys and no network except the first
+capture itself:
+
+```sh
+# 1. capture 60 seconds of Binance book diffs
+cargo run -p astra-record -- capture \
+  --output ./demo --venue binance --market spot --symbol BTC/USDT \
+  --channel book_diff --duration-secs 60
+
+# 2. audit it (expect: verdict healthy)
+cargo run -p astra-record -- check --input ./demo
+
+# 3. normalize to Parquet (run twice: identical bytes both times)
+cargo run -p astra-normalize --input ./demo --output ./demo-norm
+
+# 4. replay it (two seeds, one hash)
+cargo run -p astra-replay -- --input ./demo --seed 7 --strategy book-top
+
+# 5. probe a resting order over its prints
+cargo run -p astra-exec -- --input ./demo --side buy \
+  --price 100000 --quantity 0.001 --fee-bps 5
+
+# 6. benchmark it into a hashed, registrable report
+echo '{"version":1,"seed":7,"strategy":"book-top","probes":[]}' > bench.json
+cargo run -p astra-harness -- run --input ./demo \
+  --config ./bench.json --output ./report.json --record ./experiments
+cargo run -p astra-harness -- list --registry ./experiments
+```
+
+Each step prints what it did and refuses bad inputs loudly; the
+[verification record](#verification-record) explains what every number
+means and where its limits are.
 
 ## Feeds
 

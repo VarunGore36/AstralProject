@@ -78,6 +78,24 @@ stop_reason duration_elapsed</code></pre>
       </div>
     </section>
 
+    <section class="section" id="start" aria-labelledby="start-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal">Start here</p>
+        <h2 id="start-title" class="reveal">Six commands to a reproduced result.</h2>
+        <p class="section-sub reveal">No keys, no network except the first capture. Every step prints what it did and refuses bad inputs loudly.</p>
+        <div class="hero-terminal reveal" role="img" aria-label="Terminal showing the six-command research loop">
+          <div class="terminal-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+<pre class="terminal-body"><code><span class="t-dim">$</span> astra-record capture <span class="t-dim">--venue binance --symbol BTC/USDT --channel book_diff</span>
+<span class="t-dim">$</span> astra-record check <span class="t-dim">--input ./demo</span>          <span class="t-dim"># verdict healthy</span>
+<span class="t-dim">$</span> astra-normalize <span class="t-dim">--input ./demo --output ./norm</span>  <span class="t-dim"># twice: identical bytes</span>
+<span class="t-dim">$</span> astra-replay <span class="t-dim">--input ./demo --seed 7 --strategy book-top</span>  <span class="t-dim"># one hash, any seed</span>
+<span class="t-dim">$</span> astra-exec <span class="t-dim">--input ./demo --side buy --price 100000 --quantity 0.001 --fee-bps 5</span>
+<span class="t-dim">$</span> astra-harness run <span class="t-dim">--input ./demo --config ./bench.json --record ./experiments</span>
+verdict     <span class="t-ok">reproduced</span></code></pre>
+        </div>
+      </div>
+    </section>
+
     <section class="section" id="what" aria-labelledby="what-title">
       <div class="wrap narrow">
         <p class="eyebrow reveal">What is Astral</p>
