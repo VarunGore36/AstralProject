@@ -728,6 +728,7 @@ which equality broke).
 | Non-UTF8 registry entries skipped | directory names that cannot be hashes (non-UTF8 bytes) list as nothing instead of phantom empty-hash entries | GUARDED |
 | Record-seq saturation guarded | the audit's own `seq` walk had the same `+1` overflow class as update IDs; wrapping arithmetic plus a hostile-MAX regression test | GUARDED |
 | Partitions key on full instrument | a mixed-venue capture used to merge rows into the first row's file (date-only grouping); the key is now venue, market, symbol, channel, date, sorted for determinism | FIXED |
+| Index counts verified on read | hashes prove the bytes; decoded length is now checked against the index count, so hand-edited counts fail reading instead of passing silently | VERIFIED |
 | Report writes create parents | `write_report_file` makes missing output directories instead of failing the run on path choice; bare filenames still write in place | TESTED |
 | Local captures avoid /tmp | two long captures were lost to system cleaners mid-run; the runbook now directs local trial runs to persistent disk (`./target/`, `$HOME`) | LEARNED |
 | Harness CLI formats pinned | `run`, `list`, and `verify` reports render through golden-tested lib functions; live output verified byte-identical after the move | PINNED |

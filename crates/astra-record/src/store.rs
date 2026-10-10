@@ -170,7 +170,18 @@ pub fn read_all(directory: &Path) -> Result<Vec<CaptureRecord>, StoreError> {
     for entry in &index {
         let path = directory.join(&entry.name);
         verify_chunk(&path, &entry.sha256)?;
-        records.extend(read_chunk(&path)?);
+        let chunk = read_chunk(&path)?;
+        // The hash proves the bytes; this proves the index describes them.
+        // A hand-edited count passes verification but must not pass reading.
+        if chunk.len() as u64 != entry.records {
+            return Err(StoreError::Malformed(format!(
+                "{}: index claims {} records but the chunk holds {}",
+                entry.name,
+                entry.records,
+                chunk.len()
+            )));
+        }
+        records.extend(chunk);
     }
     Ok(records)
 }
@@ -334,6 +345,27 @@ mod tests {
         assert!(matches!(
             read_all(&directory),
             Err(StoreError::Integrity(_))
+        ));
+
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn doctored_index_counts_fail_on_read() {
+        // Editing index.json leaves every chunk hash valid, so verification
+        // passes and only the read path can catch the lie.
+        let directory = temp_directory("doctored-index");
+        write_all(&directory, 10, &sample(3));
+
+        let index_path = directory.join("index.json");
+        let body = std::fs::read_to_string(&index_path).unwrap();
+        let mut index: serde_json::Value = serde_json::from_str(&body).unwrap();
+        index[0]["records"] = serde_json::json!(99);
+        std::fs::write(&index_path, serde_json::to_string(&index).unwrap()).unwrap();
+
+        assert!(matches!(
+            read_all(&directory),
+            Err(StoreError::Malformed(_))
         ));
 
         std::fs::remove_dir_all(&directory).unwrap();
