@@ -64,7 +64,12 @@ pub fn reconstruct(
             summary.synthetic_records += 1;
             match serde_json::from_slice::<GapMarker>(&record.payload) {
                 Ok(marker) if marker.reason.starts_with("update_id_gap") => {}
-                Ok(_) => summary.connection_gaps += 1,
+                Ok(_) => {
+                    summary.connection_gaps += 1;
+                    // Fresh venue baseline, like the capture tracker and the
+                    // offline audit: continuity resumes from the new stream.
+                    reconstructor.reset_sequence();
+                }
                 // Fail loud like normalize and replay: a gap marker no parser
                 // understands hides the shape of the hole it was meant to mark.
                 Err(_) => {
@@ -553,6 +558,72 @@ mod tests {
 
         assert_eq!(summary.venue_frames, 3);
         assert_eq!(summary.seq_breaks, 1);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn reconnects_resume_the_book_instead_of_breaking_it() {
+        let output = temp_directory("reconnect-resume");
+        let gap = serde_json::to_vec(&GapMarker {
+            started_at: Timestamp::from_unix_nanos(1),
+            ended_at: Timestamp::from_unix_nanos(2),
+            attempts: 1,
+            reason: "venue_close".to_owned(),
+        })
+        .unwrap();
+        std::fs::create_dir_all(output.join(FRAMES_DIR)).unwrap();
+        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        for (seq, payload, flags) in [
+            (
+                0u64,
+                br#"{"e":"depthUpdate","s":"BTCUSDT","U":100,"u":110,"b":[],"a":[]}"#.to_vec(),
+                CaptureFlags::NONE,
+            ),
+            (
+                1u64,
+                gap,
+                CaptureFlags::SYNTHETIC
+                    .union(CaptureFlags::SEQUENCE_GAP)
+                    .union(CaptureFlags::UNRELIABLE),
+            ),
+            (
+                2u64,
+                br#"{"e":"depthUpdate","s":"BTCUSDT","U":500,"u":510,"b":[],"a":[]}"#.to_vec(),
+                CaptureFlags::NONE,
+            ),
+        ] {
+            writer
+                .append(&CaptureRecord {
+                    seq,
+                    instrument: instrument(),
+                    channel: Channel::BookDiff,
+                    ts_socket: Timestamp::from_unix_nanos(seq as i64),
+                    ts_exchange: None,
+                    payload,
+                    flags,
+                })
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let manifest = CaptureManifest {
+            schema_version: SCHEMA_VERSION,
+            capture_id: CaptureId::new("reconstruct-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: instrument(),
+            channel: Channel::BookDiff,
+            frames_written: 2,
+            stop_reason: None,
+        };
+        crate::capture::write_manifest(&output, &manifest).unwrap();
+
+        let summary = reconstruct(&output, None).unwrap();
+
+        assert_eq!(summary.diffs_applied, 2);
+        assert_eq!(summary.gaps, 0);
+        assert_eq!(summary.rejected_after_gap, 0);
+        assert_eq!(summary.connection_gaps, 1);
 
         std::fs::remove_dir_all(&output).unwrap();
     }

@@ -231,6 +231,17 @@ impl Reconstructor {
         Ok(())
     }
 
+    /// Forget the continuity baseline without touching anything else.
+    ///
+    /// Called on connection gaps, mirroring the capture tracker's reset: the
+    /// next spans start a fresh venue stream, so they must be checked
+    /// against the new baseline rather than accused of jumping from the old
+    /// one. The broken flag is deliberately left alone — a quarantine
+    /// imposed for real corruption is not lifted by a later reconnect.
+    pub fn reset_sequence(&mut self) {
+        self.last_update_id = None;
+    }
+
     pub fn apply_event(
         &mut self,
         span: UpdateSpan,

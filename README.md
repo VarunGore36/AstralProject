@@ -722,6 +722,7 @@ which equality broke).
 | Snapshot heal path tested | a broken `book-top` resumes emitting after a fresh snapshot with the snapshot's levels; break and heal both covered | TESTED |
 | Arithmetic overflow fails loudly | absurd size at max fee tier overflows instead of wrapping into a tiny fee; `ArithmeticOverflow` names it | TESTED |
 | Reconnects reset the audit baseline | a fresh venue baseline after a reconnect reports `connection_gaps` without a spurious update-ID finding, mirroring the recorder's own reset | TESTED |
+| Reconnects resume reconstruction | connection gaps reset the book's continuity baseline (quarantine stays sticky); fresh post-reconnect spans apply instead of rejecting forever | TESTED |
 | Registry lists distinct runs sorted | two different configs recorded side by side list in hash order with correct counts; listing is stable, not incidental | TESTED |
 | Verify hashes are validated before joining | `verify` refuses anything that is not a 64-char lowercase report hash, so traversal inputs can never escape the registry directory; well-formed misses fail on I/O instead | GUARDED |
 | Non-UTF8 registry entries skipped | directory names that cannot be hashes (non-UTF8 bytes) list as nothing instead of phantom empty-hash entries | GUARDED |
