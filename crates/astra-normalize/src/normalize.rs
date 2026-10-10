@@ -109,20 +109,31 @@ where
     T: Partitioned,
     W: Fn(&Path, &[&T]) -> Result<(), NormalizeError>,
 {
-    let mut by_date: HashMap<String, Vec<usize>> = HashMap::new();
+    // Grouped by full instrument identity plus date: grouping by date alone
+    // would merge venues into whichever file was named first. Keys sort
+    // lexicographically, so output order (and bytes) stay deterministic.
+    let mut by_partition: HashMap<(String, String, String, String, String), Vec<usize>> =
+        HashMap::new();
     for (index, row) in rows.iter().enumerate() {
-        by_date
-            .entry(date_of(row.ts_socket()))
+        by_partition
+            .entry((
+                row.venue().to_owned(),
+                row.market_type().to_owned(),
+                row.symbol().to_owned(),
+                row.channel().to_owned(),
+                date_of(row.ts_socket()),
+            ))
             .or_default()
             .push(index);
     }
 
     let mut files = Vec::new();
-    let mut dates: Vec<String> = by_date.keys().cloned().collect();
-    dates.sort();
+    let mut partitions: Vec<(String, String, String, String, String)> =
+        by_partition.keys().cloned().collect();
+    partitions.sort();
 
-    for date in dates {
-        let indices = &by_date[&date];
+    for key in &partitions {
+        let indices = &by_partition[key];
         let batch_rows: Vec<&T> = indices.iter().map(|index| &rows[*index]).collect();
         let path = part_path(
             output,
@@ -130,7 +141,7 @@ where
             batch_rows[0].market_type(),
             batch_rows[0].symbol(),
             batch_rows[0].channel(),
-            &date,
+            &key.4,
         )?;
         write(&path, &batch_rows)?;
         files.push(path);
@@ -1670,6 +1681,53 @@ mod tests {
         assert_eq!(just_fits.raw(), DECIMAL_MAX_RAW);
         let too_big: Fixed = "1000000000000.00000000".parse().unwrap();
         assert!(too_big.raw() > DECIMAL_MAX_RAW);
+    }
+
+    #[test]
+    fn mixed_venues_never_share_a_partition_file() {
+        // A hand-mixed capture must split by instrument, not merge into the
+        // first row's file. Grouping by date alone used to do exactly that.
+        let input = temp_directory("mixed-venues");
+        let output = temp_directory("mixed-venues-out");
+        write_capture(
+            &input,
+            vec![
+                record_as(
+                    0,
+                    &instrument(),
+                    Channel::BookDiff,
+                    1_700_000_000_000_000_000,
+                    DEPTH_FRAME.as_bytes().to_vec(),
+                ),
+                record_as(
+                    1,
+                    &bybit_instrument(),
+                    Channel::BookDiff,
+                    1_700_000_000_000_000_000,
+                    br#"{"topic":"orderbook.50.BTCUSDT","type":"delta","data":{"s":"BTCUSDT","b":[],"a":[["83002.60000000","0.025997"]],"u":501,"seq":2}}"#.to_vec(),
+                ),
+            ],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        assert_eq!(summary.rows_written, 2);
+
+        let files = parquet_files(&output);
+        assert_eq!(files.len(), 2);
+        let venues: Vec<String> = files
+            .iter()
+            .map(|path| {
+                path.components()
+                    .map(|c| c.as_os_str().to_str().unwrap().to_owned())
+                    .find(|c| c.starts_with("venue="))
+                    .unwrap()
+            })
+            .collect();
+        assert!(venues.contains(&"venue=binance".to_owned()));
+        assert!(venues.contains(&"venue=bybit".to_owned()));
+
+        std::fs::remove_dir_all(&input).unwrap();
+        let _ = std::fs::remove_dir_all(&output);
     }
 
     #[test]
