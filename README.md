@@ -202,6 +202,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `research/` | Published research notes, built to `website/research/` by `website/build.py` |
 | `docs/failure-policy.md` | What each subcommand does with the same corruption (read off the code; unification open) |
 | `docs/status-2026-10-10.md` | Project status with charts, flowcharts, gates, and the OSS endgame (figures sourced from the repo) |
+| `docs/streaming-design.md` | Chunk-streamed replay/normalization that preserves determinism (spec only; code open) |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 

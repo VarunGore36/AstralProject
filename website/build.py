@@ -41,6 +41,8 @@ PAGES = [
      "One capture plus one config into a hashed report."),
     ("status-2026-10-10.md", "Status", "Project status 2026-10-10",
      "Numbers, flowcharts, gates, and what ends the OSS."),
+    ("streaming-design.md", "Stream", "Streaming replay and normalization",
+     "Chunk-by-chunk design that keeps determinism."),
 ]
 
 TEMPLATE = """<!DOCTYPE html>

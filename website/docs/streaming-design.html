@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Streaming replay and normalization — Astral Project</title>
+  <meta name="description" content="Chunk-by-chunk design that keeps determinism." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+        <a href="failure-policy.html">Policy</a>
+        <a href="benchmark-harness.html">Bench</a>
+        <a href="status-2026-10-10.html">Status</a>
+        <a href="streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/streaming-design.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#opensource">← Docs</a></p>
+        <article class="doc-prose">
+<h1 id="streaming-replay-and-normalization-design">Streaming replay and normalization (design)</h1>
+<p>Status: <strong>specification only, not implemented.</strong> Audit finding 1: only
+<code>check</code> streams chunk-by-chunk; replay and normalize <code>read_all</code> the whole
+capture, needing single-digit GB for a full soak on the measured curve
+(~45 MB per 100k frames replay, ~115 MB normalize, debug builds). This
+document fixes the design before anyone writes code against it, so the
+determinism guarantees survive the refactor.</p>
+<h2 id="non-negotiables">Non-negotiables</h2>
+<ul>
+<li>Byte-identical outputs to the load-all paths on the same inputs. The
+  existing determinism tests (normalize-twice, ten replays) must pass
+  unmodified against the streaming implementations, plus a new cross test:
+  stream(normalize(X)) == bytes of load-all(normalize(X)) on a multi-chunk
+  capture.</li>
+<li>No wall-clock reads, no hash-map iteration in event order, no
+  order-dependent accumulation — the current determinism rules, unchanged.</li>
+<li>Validation stays whole-batch in <em>effect</em>: duplicate keys, range violations,
+  and manifest mismatches must still reject (or report) exactly as today,
+  even when the offending row arrives in chunk 40 of 150.</li>
+</ul>
+<h2 id="shape-of-the-solution-replay">Shape of the solution (replay)</h2>
+<p>Replay already processes records in order; only acquisition changes:</p>
+<pre><code class="language-text">for each chunk in index order:
+    verify hash, decode records
+    feed events to the strategy in seq order
+</code></pre>
+<p><code>seq</code> continuity across chunk boundaries must be enforced (or at least
+surfaced — decide during implementation, default to erroring like a torn
+manifest). Gap semantics, ordering rules, and the virtual clock are
+untouched. Memory becomes O(largest chunk), not O(capture).</p>
+<h2 id="shape-of-the-solution-normalize">Shape of the solution (normalize)</h2>
+<p>Harder, because outputs group by (instrument, date) while inputs stream by
+time. Two-pass design:</p>
+<ul>
+<li>Pass 1 (streaming read): parse and validate rows chunk by chunk, keeping
+  only running validation state (seen <code>(capture_id, seq, print_index)</code> key
+  hashes for duplicate detection, min/max sanity accumulators — all
+  order-independent).</li>
+<li>Pass 2 (grouped write): spill validated rows per partition. Options, in
+  preference order: (a) one ArrowWriter per partition held open across
+  chunks (Parquet writers support repeated <code>write</code> calls before <code>close</code>;
+  verify byte-equality against single-shot output — row-group boundaries
+  will differ, so equality must be defined at the <em>read-back</em> level, not
+  the byte level, and the determinism claim restated accordingly); (b)
+  spill row groups to temp files, then merge. (a) is preferred if the
+  read-back-equality proof holds; the byte-identity claim for normalization
+  would then narrow to same-partition-single-shot, which must be stated
+  loudly wherever the old claim appears (README, cross-machine procedure).</li>
+</ul>
+<h2 id="explicitly-out-of-scope">Explicitly out of scope</h2>
+<ul>
+<li>Changing what validation enforces (only how it is computed).</li>
+<li>Parallel chunk processing (deterministic merge or nothing — nothing, for now).</li>
+<li>Touching <code>check</code> (already streams) or the store format (append-only,
+  content-addressed, and fine).</li>
+</ul>
+<h2 id="acceptance">Acceptance</h2>
+<ul>
+<li>All current determinism tests pass unmodified, plus the cross test above
+  on a multi-chunk capture.</li>
+<li>Peak RSS on the 300k-frame synthetic capture drops by an order of
+  magnitude for both paths (measure with the same VmHWM method).</li>
+<li>The README determinism rows and the cross-machine procedure state exactly
+  which equality holds (bytes vs read-back) — no silent redefinition.</li>
+</ul>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/streaming-design.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
