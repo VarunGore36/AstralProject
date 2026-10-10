@@ -256,12 +256,16 @@ fn book_diff_row(
         return Ok(row);
     }
 
-    if let Some(span) = feed::update_span(venue, record.channel, &record.payload) {
+    // Both halves or neither: a span without levels (or levels without a
+    // span) is a corrupt frame, and a half-row would replay differently from
+    // the raw stream (replay requires both to emit). Null rows preserve seq
+    // accounting without inventing book content.
+    if let (Some(span), Some(diff)) = (
+        feed::update_span(venue, record.channel, &record.payload),
+        feed::book_diff(venue, record.channel, &record.payload),
+    ) {
         row.first_update_id = Some(span.first);
         row.last_update_id = Some(span.last);
-    }
-
-    if let Some(diff) = feed::book_diff(venue, record.channel, &record.payload) {
         row.bids = Some(
             diff.bids
                 .iter()
@@ -1289,6 +1293,46 @@ mod tests {
 
         std::fs::remove_dir_all(&input).unwrap();
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn half_parsed_frames_become_null_rows_not_half_rows() {
+        // U/u present but no levels: replay would skip this frame, so the
+        // row must carry neither ids nor levels — otherwise normalized
+        // replay would diverge from raw replay on the same bytes.
+        let input = temp_directory("half-frame");
+        let output = temp_directory("half-frame-out");
+        write_capture(
+            &input,
+            vec![record(
+                0,
+                Channel::BookDiff,
+                1_700_000_000_000_000_000,
+                br#"{"e":"depthUpdate","s":"BTCUSDT","U":100,"u":105,"a":[]}"#.to_vec(),
+            )],
+        );
+
+        let summary = normalize(&input, &output).unwrap();
+        assert_eq!(summary.rows_written, 1);
+        let (batches, _) = read_table(&summary.files[0]);
+
+        let bids = batches[0]
+            .column_by_name("bids")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow::array::ListArray>()
+            .unwrap();
+        assert!(bids.is_null(0));
+        let first = batches[0]
+            .column_by_name("first_update_id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow::array::UInt64Array>()
+            .unwrap();
+        assert!(first.is_null(0));
+
+        std::fs::remove_dir_all(&input).unwrap();
+        let _ = std::fs::remove_dir_all(&output);
     }
 
     #[test]
