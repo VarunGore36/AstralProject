@@ -60,6 +60,11 @@ if model error exceeds roughly 10 bps on liquid pairs.
 One honest published research note. Kill if three months of real use does not
 produce one substantive result.
 
+Early, honestly scoped contributions so far (single windows each, not yet
+substantive by the gate's own bar): note 001 (taker count vs volume) and
+note 002 (dust vs whales), both negative results with stated limits. The
+gate stays open until months of real use produce something substantive.
+
 ## Gate 4 — do other people use it
 
 Five or more external users running the recorder, at least two external
