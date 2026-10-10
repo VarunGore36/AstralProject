@@ -107,6 +107,12 @@ pub fn check(input: &Path) -> Result<CheckReport, RecordError> {
                                 parse_update_id_gap(&marker.reason).unwrap_or((0, 0));
                             report.update_id_gaps.push(UpdateIdGap { expected, found });
                         } else {
+                            // A reconnect starts a fresh venue baseline (the
+                            // recorder resets its tracker the same way), so
+                            // the next spans are continuity-checked against
+                            // the new stream, not accused of jumping from
+                            // the old one.
+                            previous_last = None;
                             report.connection_gaps += 1;
                         }
                         report.gap_details.push(GapDetail {
@@ -728,6 +734,36 @@ mod tests {
         );
         let text = format_report(std::path::Path::new("./capture"), &report);
         assert!(text.contains("update_gap  expected 121 saw 200"), "{text}");
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn reconnects_reset_the_baseline_instead_of_crying_wolf() {
+        // A fresh venue baseline after a reconnect is not a sequence jump:
+        // the audit resets like the recorder does, so a clean reconnect
+        // reports connection_gaps 1 with no update_id_gap finding.
+        let output = temp_directory("reconnect-baseline");
+        write_records(
+            &output,
+            vec![
+                (depth_frame(100, 110), CaptureFlags::NONE),
+                (
+                    gap_payload("venue_close"),
+                    CaptureFlags::SYNTHETIC
+                        .union(CaptureFlags::SEQUENCE_GAP)
+                        .union(CaptureFlags::UNRELIABLE),
+                ),
+                (depth_frame(500, 510), CaptureFlags::NONE),
+            ],
+            10,
+        );
+
+        let report = check(&output).unwrap();
+
+        assert_eq!(report.connection_gaps, 1);
+        assert!(report.update_id_gaps.is_empty());
+        assert!(report.is_healthy());
 
         std::fs::remove_dir_all(&output).unwrap();
     }
