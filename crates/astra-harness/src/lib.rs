@@ -304,6 +304,12 @@ pub fn list_runs(registry: &Path) -> Result<Vec<RunSummary>, HarnessError> {
         if !report_path.is_file() {
             continue;
         }
+        // Directory names that are not UTF-8 can never be report hashes the
+        // registry recorded (hex is ASCII); skip them instead of listing a
+        // phantom entry no verification could ever match.
+        let Some(hash) = entry.file_name().to_str().map(|name| name.to_owned()) else {
+            continue;
+        };
         let body = std::fs::read_to_string(&report_path)?;
         let report: serde_json::Value =
             serde_json::from_str(&body).map_err(HarnessError::Report)?;
@@ -322,7 +328,7 @@ pub fn list_runs(registry: &Path) -> Result<Vec<RunSummary>, HarnessError> {
         };
         let probe_list = report.get("probes").and_then(|value| value.as_array());
         runs.push(RunSummary {
-            hash: entry.file_name().to_str().unwrap_or_default().to_owned(),
+            hash,
             capture_id: get_str("capture_id"),
             seed: get_u64("seed"),
             probes: probe_list.map(|probes| probes.len() as u64).unwrap_or(0),
@@ -473,6 +479,24 @@ mod tests {
             verify_run(registry, &"0".repeat(64), input),
             Err(HarnessError::Io(_))
         ));
+    }
+
+    #[test]
+    fn non_utf8_directories_list_as_nothing() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let registry =
+            std::env::temp_dir().join(format!("astra-harness-nonutf8-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&registry);
+        let odd = registry.join(std::ffi::OsString::from_vec(vec![0xFF, 0xFE]));
+        std::fs::create_dir_all(&odd).unwrap();
+        std::fs::write(odd.join("report.json"), "{}").unwrap();
+
+        // A directory whose name is not UTF-8 can never be a recorded hash;
+        // it is skipped instead of listed as a phantom empty-hash entry.
+        assert!(list_runs(&registry).unwrap().is_empty());
+
+        std::fs::remove_dir_all(&registry).unwrap();
     }
 
     #[test]
