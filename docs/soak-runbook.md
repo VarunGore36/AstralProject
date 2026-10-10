@@ -25,7 +25,6 @@ that does not sleep:
   below proves the route before the clock starts.
 
 ## Shakedown first (1–6 hours, same box)
-
 Never start the 72h clock on an unproven machine. On the VPS, from a clean
 checkout at a recorded commit:
 
@@ -48,6 +47,11 @@ The shakedown passes when every stream connects, frames arrive near venue
 rate, `check` is `healthy`, and `git rev-parse HEAD` is recorded. Fix
 firewall/TLS/geo issues here, not at hour 40. Delete the shakedown captures
 after — they are not the soak.
+
+Local trial runs (not the soak): capture into `./target/` or `$HOME`, never
+`/tmp` — system cleaners delete it mid-run, and this project has now lost
+two long captures that way. The rule is machine-independent: evidence lives
+on persistent disk or it does not exist.
 
 ## Start the soak
 

@@ -725,6 +725,7 @@ which equality broke).
 | Non-UTF8 registry entries skipped | directory names that cannot be hashes (non-UTF8 bytes) list as nothing instead of phantom empty-hash entries | GUARDED |
 | Record-seq saturation guarded | the audit's own `seq` walk had the same `+1` overflow class as update IDs; wrapping arithmetic plus a hostile-MAX regression test | GUARDED |
 | Report writes create parents | `write_report_file` makes missing output directories instead of failing the run on path choice; bare filenames still write in place | TESTED |
+| Local captures avoid /tmp | two long captures were lost to system cleaners mid-run; the runbook now directs local trial runs to persistent disk (`./target/`, `$HOME`) | LEARNED |
 | Harness CLI formats pinned | `run`, `list`, and `verify` reports render through golden-tested lib functions; live output verified byte-identical after the move | PINNED |
 | Live ritual 2026-10-08 | fresh 600-frame Binance capture: normalized twice → byte-identical Parquet; replayed 10× under one seed → one unique signal hash; a first-pass content-hash recipe mismatched on filenames and was corrected to contents-only | VERIFIED |
 | Soak-scale memory profile | synthetic 300k-frame capture: `check` ~10 MB (streams), `replay` ~130 MB, `normalize` ~340 MB peak RSS (debug, small payloads — a floor); full-soak judging needs GB or streaming; recorded in the runbook | MEASURED |

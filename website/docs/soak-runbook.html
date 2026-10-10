@@ -83,6 +83,10 @@ cargo build -p astra-record
 rate, <code>check</code> is <code>healthy</code>, and <code>git rev-parse HEAD</code> is recorded. Fix
 firewall/TLS/geo issues here, not at hour 40. Delete the shakedown captures
 after — they are not the soak.</p>
+<p>Local trial runs (not the soak): capture into <code>./target/</code> or <code>$HOME</code>, never
+<code>/tmp</code> — system cleaners delete it mid-run, and this project has now lost
+two long captures that way. The rule is machine-independent: evidence lives
+on persistent disk or it does not exist.</p>
 <h2 id="start-the-soak">Start the soak</h2>
 <pre><code class="language-sh">ops/soak.sh start
 </code></pre>
