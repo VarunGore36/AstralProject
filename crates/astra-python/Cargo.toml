@@ -7,8 +7,10 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+astra-exec = { workspace = true }
 astra-types = { workspace = true }
 pyo3 = { version = "0.29", features = ["auto-initialize"] }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [lib]

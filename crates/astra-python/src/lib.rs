@@ -72,10 +72,63 @@ fn timestamp_now_ns() -> PyResult<i64> {
     Ok(Timestamp::now().unix_nanos())
 }
 
+/// Simulate one resting limit order over trade prints.
+///
+/// `side` is "buy" or "sell"; prices and quantities are decimal strings;
+/// `prints` is a list of `(seq, price, quantity)` tuples in stream order.
+/// Returns the outcome as JSON (`{"result": "filled", ...}` or
+/// `{"result": "unfilled", ...}`), serialised exactly like benchmark reports.
+/// Gaps cannot be expressed here — pass gap-bearing streams through the
+/// replay-backed probe or harness instead; this function answers the
+/// print math and nothing else.
+#[pyfunction]
+fn simulate_fill(
+    side: &str,
+    price: &str,
+    quantity: &str,
+    fee_bps: u32,
+    prints: Vec<(u64, String, String)>,
+) -> PyResult<String> {
+    use astra_exec::{LimitOrder, MarketEvent, Print, Side};
+    use std::str::FromStr;
+
+    let side = match side.to_ascii_lowercase().as_str() {
+        "buy" => Side::Buy,
+        "sell" => Side::Sell,
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "side must be buy or sell, saw {side:?}"
+            )));
+        }
+    };
+    let parse = |value: &str| {
+        Fixed::from_str(value)
+            .map_err(|error| PyValueError::new_err(format!("bad decimal {value:?}: {error}")))
+    };
+    let order = LimitOrder {
+        side,
+        price: parse(price)?,
+        quantity: parse(quantity)?,
+    };
+    let mut events = Vec::with_capacity(prints.len());
+    for (seq, price, quantity) in &prints {
+        events.push(MarketEvent::Print(Print {
+            seq: *seq,
+            price: parse(price)?,
+            quantity: parse(quantity)?,
+        }));
+    }
+    let outcome = astra_exec::simulate(&order, fee_bps, &events)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    serde_json::to_string(&outcome).map_err(|error| PyValueError::new_err(error.to_string()))
+}
+
 #[pymodule]
 mod astra {
     #[pymodule_export]
-    use super::{fixed_add, fixed_div, fixed_mul, fixed_sub, parse_fixed, timestamp_now_ns};
+    use super::{
+        fixed_add, fixed_div, fixed_mul, fixed_sub, parse_fixed, simulate_fill, timestamp_now_ns,
+    };
 }
 
 #[cfg(test)]
@@ -124,6 +177,43 @@ mod tests {
             let second: i64 = now.call0().unwrap().extract().unwrap();
             assert!(second >= first);
             assert!(first > 1_700_000_000_000_000_000);
+        });
+    }
+
+    #[test]
+    fn fills_simulate_from_python() {
+        attached(|py| {
+            let simulate = pyo3::wrap_pyfunction!(simulate_fill, py).unwrap();
+            let prints = vec![
+                (0u64, "101.00000000".to_owned(), "1".to_owned()),
+                (1u64, "99.00000000".to_owned(), "1".to_owned()),
+            ];
+            let out: String = simulate
+                .call1(("buy", "100.00000000", "1", 5u32, prints.clone()))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert!(out.contains("\"result\":\"filled\""), "{out}");
+            assert!(out.contains("\"print_seq\":1"), "{out}");
+
+            let out: String = simulate
+                .call1(("sell", "102.00000000", "1", 5u32, prints))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert!(out.contains("\"result\":\"unfilled\""), "{out}");
+
+            assert!(
+                simulate
+                    .call1((
+                        "hold",
+                        "100.00000000",
+                        "1",
+                        5u32,
+                        Vec::<(u64, String, String)>::new()
+                    ))
+                    .is_err()
+            );
         });
     }
 }
