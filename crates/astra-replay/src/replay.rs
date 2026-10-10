@@ -552,6 +552,42 @@ mod tests {
     }
 
     #[test]
+    fn undecodable_gap_markers_abort_the_replay() {
+        let input = temp_directory("undecodable-gap");
+        let mut gap = record(1, &instrument(), b"not a gap marker".to_vec());
+        gap.flags = CaptureFlags::SYNTHETIC
+            .union(CaptureFlags::SEQUENCE_GAP)
+            .union(CaptureFlags::UNRELIABLE);
+
+        std::fs::create_dir_all(input.join(FRAMES_DIR)).unwrap();
+        let mut writer = store::ChunkWriter::open(input.join(FRAMES_DIR), 100).unwrap();
+        writer
+            .append(&record(0, &instrument(), DEPTH_FRAME.as_bytes().to_vec()))
+            .unwrap();
+        writer.append(&gap).unwrap();
+        writer.finish().unwrap();
+
+        let manifest = CaptureManifest {
+            schema_version: astra_types::SCHEMA_VERSION,
+            capture_id: CaptureId::new("replay-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: instrument(),
+            channel: Channel::BookDiff,
+            frames_written: 1,
+            stop_reason: None,
+        };
+        astra_record::capture::write_manifest(&input, &manifest).unwrap();
+
+        let mut strategy = Recorder::plain();
+        assert!(matches!(
+            replay(&input, 7, &mut strategy),
+            Err(ReplayError::Malformed(_))
+        ));
+
+        std::fs::remove_dir_all(&input).unwrap();
+    }
+
+    #[test]
     fn bybit_snapshots_arrive_as_snapshot_events() {
         let input = temp_directory("bybit-events");
         write_capture(
