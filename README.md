@@ -717,6 +717,7 @@ which equality broke).
 | Second replay strategy | `trade-tally` counts prints by side with its own unknown bucket and one end-of-stream signal; harness dispatches `book-top`/`trade-tally` (unknown refused); same probes under different strategies give different signal hashes | TESTED |
 | Verify mismatch exits non-zero | `MISMATCH` verdicts fail the process (exit 1), so scripts judge reproductions mechanically like `soak.sh check` judges captures; match exits 0, both demoed live | VERIFIED live |
 | Venue event time for Binance diffs | `E` millis parse to `ts_exchange` in replay events and normalized rows (other venues/channels stay null); fixture-pinned plus a read-back test | WIRED |
+| Canonical sides enforced at validation | non-null trade sides must already be Buy/Sell (parsers fail closed upstream); anything else stops the batch instead of laundering a future parser bug | ENFORCED |
 | BookTop breaks like the book | gaps and venue discontinuities silence `book-top` until a snapshot heals it, per the replay design contract; post-gap diffs emit nothing; reworked regression test | ENFORCED |
 | Snapshot heal path tested | a broken `book-top` resumes emitting after a fresh snapshot with the snapshot's levels; break and heal both covered | TESTED |
 | Registry lists distinct runs sorted | two different configs recorded side by side list in hash order with correct counts; listing is stable, not incidental | TESTED |

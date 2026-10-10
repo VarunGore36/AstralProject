@@ -404,6 +404,18 @@ fn validate_trades(rows: &[TradeRow]) -> Result<(), NormalizeError> {
             )));
         }
 
+        // Sides fail closed at parse time (unknown labels become None), so a
+        // non-null side here must already be canonical. Anything else means
+        // a bug upstream, and the batch stops instead of laundering it.
+        if let Some(side) = row.side.as_deref() {
+            if side != "Buy" && side != "Sell" {
+                return Err(NormalizeError::Validation(format!(
+                    "non-canonical side {side:?} at seq {}",
+                    row.seq
+                )));
+            }
+        }
+
         if let Some(price) = row.price {
             if price <= 0 {
                 return Err(NormalizeError::Validation(format!(
@@ -1583,6 +1595,40 @@ mod tests {
 
         std::fs::remove_dir_all(&input).unwrap();
         let _ = std::fs::remove_dir_all(&output);
+    }
+
+    #[test]
+    fn non_canonical_sides_fail_the_batch() {
+        // Parsers fail closed already, so this guards future parser changes:
+        // a non-null side that is not Buy/Sell must stop the batch.
+        let row = |side: Option<&str>| TradeRow {
+            venue: "binance".to_owned(),
+            market_type: "spot".to_owned(),
+            symbol: "BTC/USDT".to_owned(),
+            channel: "trade".to_owned(),
+            ts_exchange: None,
+            ts_socket: 1_700_000_000_000_000_000,
+            trade_id: None,
+            price: Some(1),
+            quantity: Some(1),
+            side: side.map(|side| side.to_owned()),
+            print_index: 0,
+            capture_id: "test".to_owned(),
+            seq: 0,
+            flags: 0,
+            synthetic: false,
+            gap_reason: None,
+            gap_attempts: None,
+            gap_started: None,
+            gap_ended: None,
+        };
+        assert!(validate_trades(&[row(Some("Buy"))]).is_ok());
+        assert!(validate_trades(&[row(Some("Sell"))]).is_ok());
+        assert!(validate_trades(&[row(None)]).is_ok());
+        assert!(matches!(
+            validate_trades(&[row(Some("bid"))]),
+            Err(NormalizeError::Validation(_))
+        ));
     }
 
     #[test]
