@@ -156,6 +156,15 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <td>abort via count mismatch</td>
 </tr>
 <tr>
+<td>Crossed snapshot</td>
+<td>n/a (writes valid ones)</td>
+<td>not inspected</td>
+<td>abort (<code>CrossedSnapshot</code>, nothing loaded)</td>
+<td>abort</td>
+<td>n/a (snapshots are not normalized)</td>
+<td>no emit (book-top ignores failed loads; strategies decide)</td>
+</tr>
+<tr>
 <td>Final disconnect, no trailing gap</td>
 <td>stop reason only (correct: nothing follows)</td>
 <td>nothing to find (read the manifest)</td>

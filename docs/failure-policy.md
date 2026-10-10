@@ -22,6 +22,7 @@ null-field Parquet row · **passthrough** = surfaced to the caller unchanged.
 | Sequence break (`seq` jumps) | impossible (writer assigns `seq`) | finding | **counted** (`seq_breaks`) | **not checked** | duplicate `seq` rejected | **not checked** (trusts order) |
 | Duplicate update spans | gap record (strict equality) | **not detected** (forward jumps only) | applied twice, harmlessly (set semantics) | applied twice | accepted if `seq` differs | emitted twice |
 | Half-written capture (`in_progress`, stale counts) | n/a | finding via count mismatch | abort via count mismatch | proceeds on whatever frames exist | abort via count mismatch | abort via count mismatch |
+| Crossed snapshot | n/a (writes valid ones) | not inspected | abort (`CrossedSnapshot`, nothing loaded) | abort | n/a (snapshots are not normalized) | no emit (book-top ignores failed loads; strategies decide) |
 | Final disconnect, no trailing gap | stop reason only (correct: nothing follows) | nothing to find (read the manifest) | nothing to reconstruct past | n/a | n/a | n/a |
 
 ## Rules for changing this table
