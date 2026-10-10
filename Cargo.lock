@@ -382,8 +382,10 @@ dependencies = [
 name = "astra-python"
 version = "0.1.0"
 dependencies = [
+ "astra-exec",
  "astra-types",
  "pyo3",
+ "serde_json",
  "thiserror",
 ]
 

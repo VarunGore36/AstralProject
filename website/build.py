@@ -19,6 +19,8 @@ RESEARCH = [
      "15,655 prints: count screams, volume shrugs."),
     ("002-dust-plus-whales.md", "Note 002", "Dust plus whales",
      "Median print $8; top 1% carries 46% of volume."),
+    ("003-bursts-and-milliseconds.md", "Note 003", "Bursts and milliseconds",
+     "529 prints in the busiest second; 73% share a millisecond."),
 ]
 
 # (filename, nav label, page title, description)

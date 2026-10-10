@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bursts and milliseconds — Astral Project</title>
+  <meta name="description" content="529 prints in the busiest second; 73% share a millisecond." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+        <a href="failure-policy.html">Policy</a>
+        <a href="benchmark-harness.html">Bench</a>
+        <a href="status-2026-10-10.html">Status</a>
+        <a href="streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/003-bursts-and-milliseconds.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-003-the-tape-arrives-in-bursts-and-milliseconds-lie">Research note 003: the tape arrives in bursts, and milliseconds lie</h1>
+<p>Date: 2026-10-10 · Status: <strong>observational, single 30-minute window.</strong>
+Companion to notes 001 (count vs volume) and 002 (dust vs whales). No
+profitability claim; limits stated; method reproducible.</p>
+<h2 id="question">Question</h2>
+<p>How is trade flow distributed in <em>time</em> — and what does the venue's own
+timestamp resolution hide from anyone replaying it?</p>
+<h2 id="dataset">Dataset</h2>
+<ul>
+<li>14,979 trade prints, Binance spot BTC/USDT, 30 minutes, one recorded
+  reconnect gap mid-capture (<code>venue_close</code>, single attempt), audit verdict
+  <code>healthy</code>, clean duration stop.</li>
+<li>Normalized to one Parquet file (14,979 exact-decimal rows); analysis over
+  venue timestamps (<code>T</code>, millisecond resolution).</li>
+</ul>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Measure</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Span</td>
+<td>30.0 min</td>
+</tr>
+<tr>
+<td>Prints</td>
+<td>14,979</td>
+</tr>
+<tr>
+<td>Inter-arrival, median</td>
+<td>0.0 ms</td>
+</tr>
+<tr>
+<td>Inter-arrival, p90 / p99</td>
+<td>399 ms / 1,736 ms</td>
+</tr>
+<tr>
+<td>Max inter-trade gap</td>
+<td>4.4 s</td>
+</tr>
+<tr>
+<td>Same-millisecond consecutive prints</td>
+<td>10,931 of 14,978 (73.0%)</td>
+</tr>
+<tr>
+<td>Silent seconds (zero prints)</td>
+<td>320 of ~1,800 (17.8%)</td>
+</tr>
+<tr>
+<td>Prints/sec, median / p99 / max</td>
+<td>2 / 189 / 529</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reading">Reading</h2>
+<p>Three facts that jointly break naive time handling. First, flow is
+violently bursty: the median second holds 2 prints while the busiest holds
+529, and nearly a fifth of all seconds hold none. Any fixed-interval
+representation (1-second bars, per-second features) averages a distribution
+that never sits at its average — the bar is a fiction the tape never
+traded. Second, 73% of consecutive prints share a millisecond, so ordering
+<em>within</em> a millisecond is venue-opaque: the venue batches, and replay
+order inside the batch is arrival order, not execution order. A fill model
+that fills print-by-print inside a shared millisecond pretends to knowledge
+it cannot have; conservative handling treats same-millisecond prints as
+simultaneous. Third, the longest venue-quiet stretch is 4.4 seconds —
+unremarkable, except beside the reconnect gap the capture layer recorded
+separately: venue time cannot distinguish "nothing traded" from "we heard
+nothing," which is exactly why gap records exist alongside timestamps.</p>
+<p>What would strengthen or overturn this: burst statistics across sessions
+(Asian/European/US hours separately); same-millisecond batch sizes by
+venue (does Bybit batch the same way?); a fill model with explicit
+same-millisecond simultaneity, backtested against the current
+print-by-print default to measure how much phantom precision it removes.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/003-bursts-and-milliseconds.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
