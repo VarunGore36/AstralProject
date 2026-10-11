@@ -1,12 +1,12 @@
-# Streaming replay and normalization (design + replay build note)
+# Streaming replay and normalization (design + build notes)
 
-Status: **replay streams chunk-by-chunk (implemented — see "As built" and
-the acceptance record); normalization is still spec-only.** Audit finding
-1: only `check` streamed chunk-by-chunk; replay and normalize `read_all`ed
-the whole capture, needing single-digit GB for a full soak on the measured
-curve (~45 MB per 100k frames replay, ~115 MB normalize, debug builds).
-This document fixed the design before anyone wrote code against it, so the
-determinism guarantees survive the refactor.
+Status: **both stream chunk-by-chunk (implemented — see "As built" notes
+and the acceptance record).** Audit finding 1: only `check` streamed
+chunk-by-chunk; replay and normalize `read_all`ed the whole capture,
+needing single-digit GB for a full soak on the measured curve (~45 MB per
+100k frames replay, ~115 MB normalize, debug builds). This document fixed
+the design before anyone wrote code against it, so the determinism
+guarantees survive the refactor.
 
 ## Non-negotiables
 
@@ -79,6 +79,34 @@ time. Two-pass design:
   would then narrow to same-partition-single-shot, which must be stated
   loudly wherever the old claim appears (README, cross-machine procedure).
 
+### As built (normalize, 2026-10-11)
+
+Option (a), with two corrections the design anticipated but did not
+settle. Each chunk's rows are grouped by partition exactly like the old
+whole-batch grouping, and each group is appended as a new row group to its
+partition's staging writer (one `ArrowWriter` per partition, held open).
+Staging files carry a `.tmp` suffix — invisible to the `part-*.parquet`
+numbering — and are renamed into place only after the whole stream passes
+the old error precedence (manifest, then first decode failure in stream
+order, then per-table first failures in table order). A failed run deletes
+its staging files and leaves no parquet behind.
+
+Two things the design missed: `ArrowWriter` buffers rows until a row-group
+limit (~1M rows) or `close`, so every chunk-segment write is followed by an
+explicit `flush()` — without it the whole capture sat in memory and the
+port was 5× *worse* than load-all (measured 1.1 GB before the flush,
+28 MB after). And the byte-identity restatement is narrower than feared:
+the same capture twice is still byte-identical (same chunks, same row
+groups — the normalize-twice test passes unmodified), and the
+cross-machine procedure needs no change (captures transfer with their
+chunking). Only the same *records* under *different chunking* now compare
+at read-back level, proven by the `chunking_changes_packaging_not_rows`
+cross test — which also asserts no `.tmp` file ever escapes.
+
+Measured on a 200k-frame synthetic capture (debug build, peak child RSS):
+256 MB load-all → 28 MB streamed (~9×), identical file layout, identical
+11 MB total output.
+
 ## Explicitly out of scope
 
 - Changing what validation enforces (only how it is computed).
@@ -91,11 +119,16 @@ time. Two-pass design:
 - [x] Replay: all determinism tests pass unmodified, plus a multi-chunk
   cross test (1/2/100 records-per-chunk over a mixed seven-frame capture
   with hand-computed expectations) and seq-break / torn-manifest aborts.
-- [ ] Normalize: the same cross test still to come with the streaming port.
-- [~] Peak RSS: replay input buffering eliminated (trade-tally ~12×, book-top
-  bounded by its own signal output — see "As built"). Normalize unmeasured
-  until its port lands.
+- [x] Normalize: all determinism tests pass unmodified (including the
+  byte-identity twice test), plus the read-back cross test
+  (`chunking_changes_packaging_not_rows`: 1 vs 100 records-per-chunk, same
+  files, same logical rows, no staging leaks).
+- [x] Peak RSS: replay input buffering eliminated (trade-tally ~12×, book-top
+  bounded by its own signal output — see "As built"); normalize 256 MB →
+  28 MB on a 200k-frame synthetic capture (~9×, identical layout and bytes
+  out). Both measured as peak child RSS, debug builds.
 - The README determinism rows and the cross-machine procedure state exactly
   which equality holds (bytes vs read-back) — no silent redefinition.
-  (Replay equality stays byte-level; normalize will restate if the two-pass
-  design changes row-group bytes.)
+  (Same capture twice: byte-level, both paths. Same records under different
+  chunking: replay byte-level, normalize read-back level. The cross-machine
+  procedure transfers whole captures, so its byte-level claim stands.)

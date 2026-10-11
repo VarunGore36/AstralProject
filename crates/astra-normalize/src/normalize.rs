@@ -52,102 +52,351 @@ pub struct NormalizeSummary {
     pub files: Vec<PathBuf>,
 }
 
+/// Normalize a capture into Hive-partitioned Parquet, chunk by chunk.
+///
+/// Inputs stream: each chunk is hash-verified, count-checked against its
+/// index entry, parsed, and incrementally validated, then its rows are
+/// appended as new row groups to the open per-partition writers. Memory is
+/// O(largest chunk plus validation sets), never O(capture).
+///
+/// Consequences, stated loudly (see `docs/streaming-design.md`):
+/// - Same capture twice still yields byte-identical files (same chunks, same
+///   row groups). The same *records* with *different chunking* yield the same
+///   logical rows in different row-group packaging — equality across
+///   chunkings holds at read-back level, not byte level.
+/// - Writers stage to `<part>.parquet.tmp` files and rename into place only
+///   after the whole stream validates. A failed run leaves no parquet
+///   behind, exactly like the old validate-everything-first path.
+/// - Error precedence is unchanged: manifest mismatch first, then the first
+///   undecodable gap marker in stream order, then the first per-table
+///   validation failure in table order (diffs, trades, topbooks).
 pub fn normalize(input: &Path, output: &Path) -> Result<NormalizeSummary, NormalizeError> {
     let manifest = read_manifest(input)?;
-    let records = store::read_all(&input.join(FRAMES_DIR))?;
+    let frames_dir = input.join(FRAMES_DIR);
+    let index = store::read_index(&frames_dir)?;
 
-    let venue_frames: u64 = records
-        .iter()
-        .filter(|record| !record.flags.contains(CaptureFlags::SYNTHETIC))
-        .count() as u64;
-    if venue_frames != manifest.frames_written {
-        return Err(NormalizeError::Validation(format!(
-            "manifest claims {} venue frames but the capture holds {}",
-            manifest.frames_written, venue_frames
-        )));
+    let mut run = StreamRun::new(&manifest);
+
+    for entry in &index {
+        let chunk = read_verified_chunk(&frames_dir, entry)?;
+        for record in &chunk {
+            run.ingest(record);
+        }
+        // A decode or validation failure never halts ingestion (the old path
+        // built every row before judging any of them, and precedence is
+        // applied at the end). An upstream IO failure does stop the run.
+        run.flush_chunk(output)?;
     }
 
-    let mut diff_rows = Vec::with_capacity(records.len());
-    let mut trade_rows = Vec::new();
-    let mut top_book_rows = Vec::new();
-    let mut skipped_unsupported_channel = 0u64;
+    run.finish(&manifest)
+}
 
-    for record in &records {
-        match record.channel {
-            Channel::BookDiff => diff_rows.push(book_diff_row(&manifest, record)?),
-            Channel::Trade => trade_rows.extend(trade_rows_for(&manifest, record)?),
-            Channel::BookTicker => top_book_rows.push(top_book_row(&manifest, record)?),
-            _ => skipped_unsupported_channel += 1,
+/// Read one chunk with the same guarantees `read_all` gave the old path:
+/// the bytes hash to the index entry, and the decoded count matches it.
+fn read_verified_chunk(
+    frames_dir: &Path,
+    entry: &store::ChunkIndexEntry,
+) -> Result<Vec<astra_types::CaptureRecord>, NormalizeError> {
+    let path = frames_dir.join(&entry.name);
+    store::verify_chunk(&path, &entry.sha256)?;
+    let chunk = store::read_chunk(&path)?;
+    if chunk.len() as u64 != entry.records {
+        return Err(NormalizeError::Validation(format!(
+            "{}: index claims {} records but the chunk holds {}",
+            entry.name,
+            entry.records,
+            chunk.len()
+        )));
+    }
+    Ok(chunk)
+}
+
+/// A Hive partition identity: venue, market type, symbol, channel, date.
+/// Keys sort lexicographically, so output order (and file choice) stays
+/// deterministic — the same rule the old whole-batch grouping used.
+type PartKey = (String, String, String, String, String);
+
+/// Table rank fixes cross-table order (diffs, then trades, then topbooks),
+/// matching the old write sequence file for file.
+const TABLE_DIFF: u8 = 0;
+const TABLE_TRADE: u8 = 1;
+const TABLE_TOPBOOK: u8 = 2;
+
+fn partition_key<T: Partitioned>(row: &T) -> PartKey {
+    (
+        row.venue().to_owned(),
+        row.market_type().to_owned(),
+        row.symbol().to_owned(),
+        row.channel().to_owned(),
+        date_of(row.ts_socket()),
+    )
+}
+
+/// One open staging writer: `<final>.parquet.tmp` until the whole stream
+/// validates, then renamed into place. A failed run deletes its staging
+/// files and leaves no parquet behind.
+struct OpenWriter {
+    tmp: PathBuf,
+    final_path: PathBuf,
+    writer: ArrowWriter<std::fs::File>,
+}
+
+fn writer_properties() -> parquet::file::properties::WriterProperties {
+    WriterProperties::builder()
+        .set_key_value_metadata(Some(vec![parquet_metadata()]))
+        .build()
+}
+
+/// The chunk-resident streaming state: per-chunk row buffers (flushed to
+/// staging writers every chunk), running validation sets (the only state
+/// that spans chunks), counters, and the first error per precedence rank.
+struct StreamRun<'m> {
+    manifest: &'m CaptureManifest,
+    diff_buffer: Vec<BookDiffRow>,
+    trade_buffer: Vec<TradeRow>,
+    topbook_buffer: Vec<TopBookRow>,
+    diff_seq: HashSet<u64>,
+    trade_keys: HashSet<(u64, u32)>,
+    top_seq: HashSet<u64>,
+    decode_error: Option<NormalizeError>,
+    diff_error: Option<NormalizeError>,
+    trade_error: Option<NormalizeError>,
+    top_error: Option<NormalizeError>,
+    writers: HashMap<(u8, PartKey), OpenWriter>,
+    records: u64,
+    venue_frames: u64,
+    rows_written: u64,
+    skipped_unsupported_channel: u64,
+}
+
+impl<'m> StreamRun<'m> {
+    fn new(manifest: &'m CaptureManifest) -> Self {
+        StreamRun {
+            manifest,
+            diff_buffer: Vec::new(),
+            trade_buffer: Vec::new(),
+            topbook_buffer: Vec::new(),
+            diff_seq: HashSet::new(),
+            trade_keys: HashSet::new(),
+            top_seq: HashSet::new(),
+            decode_error: None,
+            diff_error: None,
+            trade_error: None,
+            top_error: None,
+            writers: HashMap::new(),
+            records: 0,
+            venue_frames: 0,
+            rows_written: 0,
+            skipped_unsupported_channel: 0,
         }
     }
 
-    validate_batch(&diff_rows)?;
-    validate_trades(&trade_rows)?;
-    validate_top_books(&top_book_rows)?;
+    /// Parse one record into its table buffer and run that table's checks
+    /// immediately. Range checks are order-independent, so the first
+    /// offending row per table is the same one the whole-batch pass found;
+    /// decode failures are first-in-stream-order, as before.
+    fn ingest(&mut self, record: &astra_types::CaptureRecord) {
+        self.records += 1;
+        if !record.flags.contains(CaptureFlags::SYNTHETIC) {
+            self.venue_frames += 1;
+        }
 
-    let mut files = Vec::new();
-    files.extend(write_grouped(output, &diff_rows, |path, rows| {
-        write_batch(path, rows)
-    })?);
-    files.extend(write_grouped(output, &trade_rows, |path, rows| {
-        write_trade_batch(path, rows)
-    })?);
-    files.extend(write_grouped(output, &top_book_rows, |path, rows| {
-        write_top_book_batch(path, rows)
-    })?);
+        match record.channel {
+            Channel::BookDiff => match book_diff_row(self.manifest, record) {
+                Ok(row) => {
+                    if self.diff_error.is_none() {
+                        if let Err(error) = check_diff_row(&row, &mut self.diff_seq) {
+                            self.diff_error = Some(error);
+                        }
+                    }
+                    self.diff_buffer.push(row);
+                }
+                Err(error) => {
+                    if self.decode_error.is_none() {
+                        self.decode_error = Some(error);
+                    }
+                }
+            },
+            Channel::Trade => match trade_rows_for(self.manifest, record) {
+                Ok(rows) => {
+                    for row in rows {
+                        if self.trade_error.is_none() {
+                            if let Err(error) = check_trade_row(&row, &mut self.trade_keys) {
+                                self.trade_error = Some(error);
+                            }
+                        }
+                        self.trade_buffer.push(row);
+                    }
+                }
+                Err(error) => {
+                    if self.decode_error.is_none() {
+                        self.decode_error = Some(error);
+                    }
+                }
+            },
+            Channel::BookTicker => match top_book_row(self.manifest, record) {
+                Ok(row) => {
+                    if self.top_error.is_none() {
+                        if let Err(error) = check_top_book_row(&row, &mut self.top_seq) {
+                            self.top_error = Some(error);
+                        }
+                    }
+                    self.topbook_buffer.push(row);
+                }
+                Err(error) => {
+                    if self.decode_error.is_none() {
+                        self.decode_error = Some(error);
+                    }
+                }
+            },
+            _ => self.skipped_unsupported_channel += 1,
+        }
+    }
 
-    Ok(NormalizeSummary {
-        records: records.len() as u64,
-        rows_written: (diff_rows.len() + trade_rows.len() + top_book_rows.len()) as u64,
-        skipped_unsupported_channel,
-        files,
-    })
+    /// Append the current chunk's rows to their staging writers, grouped by
+    /// partition exactly like the old path grouped the whole batch. Buffers
+    /// are drained, so only one chunk of rows is ever resident.
+    fn flush_chunk(&mut self, output: &Path) -> Result<(), NormalizeError> {
+        self.rows_written +=
+            (self.diff_buffer.len() + self.trade_buffer.len() + self.topbook_buffer.len()) as u64;
+        flush_table(
+            output,
+            TABLE_DIFF,
+            &mut self.writers,
+            std::mem::take(&mut self.diff_buffer),
+            book_diff_schema,
+            diff_record_batch,
+        )?;
+        flush_table(
+            output,
+            TABLE_TRADE,
+            &mut self.writers,
+            std::mem::take(&mut self.trade_buffer),
+            trade_schema,
+            trade_record_batch,
+        )?;
+        flush_table(
+            output,
+            TABLE_TOPBOOK,
+            &mut self.writers,
+            std::mem::take(&mut self.topbook_buffer),
+            top_book_schema,
+            top_book_record_batch,
+        )?;
+        Ok(())
+    }
+
+    /// Judge the run in the old precedence order, then either publish every
+    /// staging file (close + rename, deterministic file order) or delete
+    /// them all and report the failure.
+    fn finish(mut self, manifest: &CaptureManifest) -> Result<NormalizeSummary, NormalizeError> {
+        let failure = if self.venue_frames != manifest.frames_written {
+            Some(NormalizeError::Validation(format!(
+                "manifest claims {} venue frames but the capture holds {}",
+                manifest.frames_written, self.venue_frames
+            )))
+        } else {
+            self.decode_error
+                .take()
+                .or_else(|| self.diff_error.take())
+                .or_else(|| self.trade_error.take())
+                .or_else(|| self.top_error.take())
+        };
+
+        if let Some(error) = failure {
+            abort_writers(&mut self.writers);
+            return Err(error);
+        }
+
+        let mut order: Vec<(u8, PartKey)> = self.writers.keys().cloned().collect();
+        order.sort();
+        let mut files = Vec::with_capacity(order.len());
+        for key in &order {
+            let open = self.writers.remove(key).expect("ordered from live keys");
+            open.writer.close()?;
+            std::fs::rename(&open.tmp, &open.final_path)?;
+            files.push(open.final_path);
+        }
+
+        Ok(NormalizeSummary {
+            records: self.records,
+            rows_written: self.rows_written,
+            skipped_unsupported_channel: self.skipped_unsupported_channel,
+            files,
+        })
+    }
 }
 
-fn write_grouped<T, W>(output: &Path, rows: &[T], write: W) -> Result<Vec<PathBuf>, NormalizeError>
+/// Delete every staging file. Writers are dropped first so no handle keeps
+/// a file alive while it is removed.
+fn abort_writers(writers: &mut HashMap<(u8, PartKey), OpenWriter>) {
+    for (_, open) in writers.drain() {
+        drop(open.writer);
+        let _ = std::fs::remove_file(&open.tmp);
+    }
+}
+
+/// Group one chunk's rows by partition (sorted keys, stream order within a
+/// partition — the old grouping rule) and append each group as a new row
+/// group to its staging writer, opening the writer on first touch.
+fn flush_table<T>(
+    output: &Path,
+    table: u8,
+    writers: &mut HashMap<(u8, PartKey), OpenWriter>,
+    rows: Vec<T>,
+    schema: fn() -> Schema,
+    batch: fn(&[&T]) -> Result<RecordBatch, NormalizeError>,
+) -> Result<(), NormalizeError>
 where
     T: Partitioned,
-    W: Fn(&Path, &[&T]) -> Result<(), NormalizeError>,
 {
-    // Grouped by full instrument identity plus date: grouping by date alone
-    // would merge venues into whichever file was named first. Keys sort
-    // lexicographically, so output order (and bytes) stay deterministic.
-    let mut by_partition: HashMap<(String, String, String, String, String), Vec<usize>> =
-        HashMap::new();
+    let mut by_partition: HashMap<PartKey, Vec<usize>> = HashMap::new();
     for (index, row) in rows.iter().enumerate() {
         by_partition
-            .entry((
-                row.venue().to_owned(),
-                row.market_type().to_owned(),
-                row.symbol().to_owned(),
-                row.channel().to_owned(),
-                date_of(row.ts_socket()),
-            ))
+            .entry(partition_key(row))
             .or_default()
             .push(index);
     }
-
-    let mut files = Vec::new();
-    let mut partitions: Vec<(String, String, String, String, String)> =
-        by_partition.keys().cloned().collect();
+    let mut partitions: Vec<PartKey> = by_partition.keys().cloned().collect();
     partitions.sort();
 
     for key in &partitions {
-        let indices = &by_partition[key];
-        let batch_rows: Vec<&T> = indices.iter().map(|index| &rows[*index]).collect();
-        let path = part_path(
-            output,
-            batch_rows[0].venue(),
-            batch_rows[0].market_type(),
-            batch_rows[0].symbol(),
-            batch_rows[0].channel(),
-            &key.4,
-        )?;
-        write(&path, &batch_rows)?;
-        files.push(path);
+        let group: Vec<&T> = by_partition[key]
+            .iter()
+            .map(|index| &rows[*index])
+            .collect();
+        let writer = match writers.entry((table, key.clone())) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let (venue, market_type, symbol, channel, date) = key;
+                // part_path names the next free `part-NNNNN.parquet`, raw
+                // symbol exactly as the old grouping passed it.
+                let final_path = part_path(output, venue, market_type, symbol, channel, date)?;
+                // part_path counts only `part-*.parquet`, so the `.tmp`
+                // suffix keeps staging files out of its numbering.
+                let tmp = final_path.with_extension("parquet.tmp");
+                let file = std::fs::File::create(&tmp)?;
+                let writer = parquet::arrow::ArrowWriter::try_new(
+                    file,
+                    std::sync::Arc::new(schema()),
+                    Some(writer_properties()),
+                )?;
+                entry.insert(OpenWriter {
+                    tmp,
+                    final_path,
+                    writer,
+                })
+            }
+        };
+        writer.writer.write(&batch(&group)?)?;
+        // ArrowWriter buffers rows until a row-group limit (default ~1M
+        // rows) or close: without this flush the whole capture would sit in
+        // memory despite chunking. One row group per touched chunk keeps
+        // inputs O(chunk) and stays deterministic run to run.
+        writer.writer.flush()?;
     }
 
-    Ok(files)
+    Ok(())
 }
 
 trait Partitioned {
@@ -283,41 +532,37 @@ fn book_diff_row(
     Ok(row)
 }
 
-fn validate_batch(rows: &[BookDiffRow]) -> Result<(), NormalizeError> {
-    let mut seen_seq = HashSet::with_capacity(rows.len());
+fn check_diff_row(row: &BookDiffRow, seen_seq: &mut HashSet<u64>) -> Result<(), NormalizeError> {
+    if !seen_seq.insert(row.seq) {
+        return Err(NormalizeError::Validation(format!(
+            "duplicate seq {} in capture {}",
+            row.seq, row.capture_id
+        )));
+    }
 
-    for row in rows {
-        if !seen_seq.insert(row.seq) {
-            return Err(NormalizeError::Validation(format!(
-                "duplicate seq {} in capture {}",
-                row.seq, row.capture_id
-            )));
-        }
-
-        if let Some(levels) = row
-            .bids
-            .as_ref()
-            .map(|bids| bids.iter().chain(row.asks.iter().flatten()))
-        {
-            for (price, quantity) in levels {
-                if *price <= 0 {
-                    return Err(NormalizeError::Validation(format!(
-                        "non-positive price {price} at seq {}",
-                        row.seq
-                    )));
-                }
-                if *quantity < 0 {
-                    return Err(NormalizeError::Validation(format!(
-                        "negative quantity {quantity} at seq {}",
-                        row.seq
-                    )));
-                }
-                if *price > DECIMAL_MAX_RAW || *quantity > DECIMAL_MAX_RAW {
-                    return Err(NormalizeError::Validation(format!(
-                        "value beyond Decimal128(20,8) at seq {}: price {price}, quantity {quantity}",
-                        row.seq
-                    )));
-                }
+    if let Some(levels) = row
+        .bids
+        .as_ref()
+        .map(|bids| bids.iter().chain(row.asks.iter().flatten()))
+    {
+        for (price, quantity) in levels {
+            if *price <= 0 {
+                return Err(NormalizeError::Validation(format!(
+                    "non-positive price {price} at seq {}",
+                    row.seq
+                )));
+            }
+            if *quantity < 0 {
+                return Err(NormalizeError::Validation(format!(
+                    "negative quantity {quantity} at seq {}",
+                    row.seq
+                )));
+            }
+            if *price > DECIMAL_MAX_RAW || *quantity > DECIMAL_MAX_RAW {
+                return Err(NormalizeError::Validation(format!(
+                    "value beyond Decimal128(20,8) at seq {}: price {price}, quantity {quantity}",
+                    row.seq
+                )));
             }
         }
     }
@@ -408,56 +653,55 @@ fn trade_rows_for(
         .collect())
 }
 
-fn validate_trades(rows: &[TradeRow]) -> Result<(), NormalizeError> {
-    let mut seen_keys = HashSet::with_capacity(rows.len());
+fn check_trade_row(
+    row: &TradeRow,
+    seen_keys: &mut HashSet<(u64, u32)>,
+) -> Result<(), NormalizeError> {
+    if !seen_keys.insert((row.seq, row.print_index)) {
+        return Err(NormalizeError::Validation(format!(
+            "duplicate seq {} print {} in capture {}",
+            row.seq, row.print_index, row.capture_id
+        )));
+    }
 
-    for row in rows {
-        if !seen_keys.insert((row.seq, row.print_index)) {
+    // Sides fail closed at parse time (unknown labels become None), so a
+    // non-null side here must already be canonical. Anything else means
+    // a bug upstream, and the batch stops instead of laundering it.
+    if let Some(side) = row.side.as_deref() {
+        if side != "Buy" && side != "Sell" {
             return Err(NormalizeError::Validation(format!(
-                "duplicate seq {} print {} in capture {}",
-                row.seq, row.print_index, row.capture_id
+                "non-canonical side {side:?} at seq {}",
+                row.seq
             )));
         }
+    }
 
-        // Sides fail closed at parse time (unknown labels become None), so a
-        // non-null side here must already be canonical. Anything else means
-        // a bug upstream, and the batch stops instead of laundering it.
-        if let Some(side) = row.side.as_deref() {
-            if side != "Buy" && side != "Sell" {
-                return Err(NormalizeError::Validation(format!(
-                    "non-canonical side {side:?} at seq {}",
-                    row.seq
-                )));
-            }
+    if let Some(price) = row.price {
+        if price <= 0 {
+            return Err(NormalizeError::Validation(format!(
+                "non-positive price {price} at seq {}",
+                row.seq
+            )));
         }
-
-        if let Some(price) = row.price {
-            if price <= 0 {
-                return Err(NormalizeError::Validation(format!(
-                    "non-positive price {price} at seq {}",
-                    row.seq
-                )));
-            }
-            if price > DECIMAL_MAX_RAW {
-                return Err(NormalizeError::Validation(format!(
-                    "price beyond Decimal128(20,8) at seq {}: {price}",
-                    row.seq
-                )));
-            }
+        if price > DECIMAL_MAX_RAW {
+            return Err(NormalizeError::Validation(format!(
+                "price beyond Decimal128(20,8) at seq {}: {price}",
+                row.seq
+            )));
         }
-        if let Some(quantity) = row.quantity {
-            if quantity < 0 {
-                return Err(NormalizeError::Validation(format!(
-                    "negative quantity {quantity} at seq {}",
-                    row.seq
-                )));
-            }
-            if quantity > DECIMAL_MAX_RAW {
-                return Err(NormalizeError::Validation(format!(
-                    "quantity beyond Decimal128(20,8) at seq {}: {quantity}",
-                    row.seq
-                )));
-            }
+    }
+    if let Some(quantity) = row.quantity {
+        if quantity < 0 {
+            return Err(NormalizeError::Validation(format!(
+                "negative quantity {quantity} at seq {}",
+                row.seq
+            )));
+        }
+        if quantity > DECIMAL_MAX_RAW {
+            return Err(NormalizeError::Validation(format!(
+                "quantity beyond Decimal128(20,8) at seq {}: {quantity}",
+                row.seq
+            )));
         }
     }
 
@@ -552,50 +796,46 @@ fn top_book_row(
     Ok(row)
 }
 
-fn validate_top_books(rows: &[TopBookRow]) -> Result<(), NormalizeError> {
-    let mut seen_seq = HashSet::with_capacity(rows.len());
+fn check_top_book_row(row: &TopBookRow, seen_seq: &mut HashSet<u64>) -> Result<(), NormalizeError> {
+    if !seen_seq.insert(row.seq) {
+        return Err(NormalizeError::Validation(format!(
+            "duplicate seq {} in capture {}",
+            row.seq, row.capture_id
+        )));
+    }
 
-    for row in rows {
-        if !seen_seq.insert(row.seq) {
+    for (label, value) in [("best_bid", row.best_bid), ("best_ask", row.best_ask)] {
+        if matches!(value, Some(price) if price <= 0) {
             return Err(NormalizeError::Validation(format!(
-                "duplicate seq {} in capture {}",
-                row.seq, row.capture_id
+                "invalid {label} at seq {}",
+                row.seq
             )));
         }
-
-        for (label, value) in [("best_bid", row.best_bid), ("best_ask", row.best_ask)] {
-            if matches!(value, Some(price) if price <= 0) {
+        if let Some(price) = value {
+            if price > DECIMAL_MAX_RAW {
                 return Err(NormalizeError::Validation(format!(
-                    "invalid {label} at seq {}",
+                    "{label} beyond Decimal128(20,8) at seq {}: {price}",
                     row.seq
                 )));
-            }
-            if let Some(price) = value {
-                if price > DECIMAL_MAX_RAW {
-                    return Err(NormalizeError::Validation(format!(
-                        "{label} beyond Decimal128(20,8) at seq {}: {price}",
-                        row.seq
-                    )));
-                }
             }
         }
-        for (label, value) in [
-            ("best_bid_qty", row.best_bid_qty),
-            ("best_ask_qty", row.best_ask_qty),
-        ] {
-            if matches!(value, Some(quantity) if quantity < 0) {
+    }
+    for (label, value) in [
+        ("best_bid_qty", row.best_bid_qty),
+        ("best_ask_qty", row.best_ask_qty),
+    ] {
+        if matches!(value, Some(quantity) if quantity < 0) {
+            return Err(NormalizeError::Validation(format!(
+                "invalid {label} at seq {}",
+                row.seq
+            )));
+        }
+        if let Some(quantity) = value {
+            if quantity > DECIMAL_MAX_RAW {
                 return Err(NormalizeError::Validation(format!(
-                    "invalid {label} at seq {}",
+                    "{label} beyond Decimal128(20,8) at seq {}: {quantity}",
                     row.seq
                 )));
-            }
-            if let Some(quantity) = value {
-                if quantity > DECIMAL_MAX_RAW {
-                    return Err(NormalizeError::Validation(format!(
-                        "{label} beyond Decimal128(20,8) at seq {}: {quantity}",
-                        row.seq
-                    )));
-                }
             }
         }
     }
@@ -678,7 +918,7 @@ fn book_diff_schema() -> Schema {
     ])
 }
 
-fn write_batch(path: &Path, rows: &[&BookDiffRow]) -> Result<(), NormalizeError> {
+fn diff_record_batch(rows: &[&BookDiffRow]) -> Result<RecordBatch, NormalizeError> {
     let schema = book_diff_schema();
     let decimal = DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE);
 
@@ -749,15 +989,7 @@ fn write_batch(path: &Path, rows: &[&BookDiffRow]) -> Result<(), NormalizeError>
         ],
     )?;
 
-    let properties = WriterProperties::builder()
-        .set_key_value_metadata(Some(vec![parquet_metadata()]))
-        .build();
-    let file = std::fs::File::create(path)?;
-    let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(properties))?;
-    writer.write(&batch)?;
-    writer.close()?;
-
-    Ok(())
+    Ok(batch)
 }
 
 fn parquet_metadata() -> parquet::file::metadata::KeyValue {
@@ -793,7 +1025,7 @@ fn trade_schema() -> Schema {
     ])
 }
 
-fn write_trade_batch(path: &Path, rows: &[&TradeRow]) -> Result<(), NormalizeError> {
+fn trade_record_batch(rows: &[&TradeRow]) -> Result<RecordBatch, NormalizeError> {
     let schema = trade_schema();
 
     let mut venue = StringBuilder::new();
@@ -874,15 +1106,7 @@ fn write_trade_batch(path: &Path, rows: &[&TradeRow]) -> Result<(), NormalizeErr
         ],
     )?;
 
-    let properties = WriterProperties::builder()
-        .set_key_value_metadata(Some(vec![parquet_metadata()]))
-        .build();
-    let file = std::fs::File::create(path)?;
-    let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(properties))?;
-    writer.write(&batch)?;
-    writer.close()?;
-
-    Ok(())
+    Ok(batch)
 }
 
 fn append_optional_decimal(builder: &mut Decimal128Builder, value: Option<i128>) {
@@ -917,7 +1141,7 @@ fn top_book_schema() -> Schema {
     ])
 }
 
-fn write_top_book_batch(path: &Path, rows: &[&TopBookRow]) -> Result<(), NormalizeError> {
+fn top_book_record_batch(rows: &[&TopBookRow]) -> Result<RecordBatch, NormalizeError> {
     let schema = top_book_schema();
 
     let mut venue = StringBuilder::new();
@@ -991,15 +1215,7 @@ fn write_top_book_batch(path: &Path, rows: &[&TopBookRow]) -> Result<(), Normali
         ],
     )?;
 
-    let properties = WriterProperties::builder()
-        .set_key_value_metadata(Some(vec![parquet_metadata()]))
-        .build();
-    let file = std::fs::File::create(path)?;
-    let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(properties))?;
-    writer.write(&batch)?;
-    writer.close()?;
-
-    Ok(())
+    Ok(batch)
 }
 
 fn level_list_builder(decimal: &DataType) -> ListBuilder<StructBuilder> {
@@ -1169,9 +1385,14 @@ mod tests {
     }
 
     fn write_capture(output: &Path, records: Vec<CaptureRecord>) {
+        write_capture_chunked(output, 100, records)
+    }
+
+    fn write_capture_chunked(output: &Path, records_per_chunk: usize, records: Vec<CaptureRecord>) {
         std::fs::create_dir_all(output.join(FRAMES_DIR)).unwrap();
 
-        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        let mut writer =
+            store::ChunkWriter::open(output.join(FRAMES_DIR), records_per_chunk).unwrap();
         for record in &records {
             writer.append(record).unwrap();
         }
@@ -1727,11 +1948,11 @@ mod tests {
             gap_started: None,
             gap_ended: None,
         };
-        assert!(validate_trades(&[row(Some("Buy"))]).is_ok());
-        assert!(validate_trades(&[row(Some("Sell"))]).is_ok());
-        assert!(validate_trades(&[row(None)]).is_ok());
+        assert!(check_trade_row(&row(Some("Buy")), &mut HashSet::new()).is_ok());
+        assert!(check_trade_row(&row(Some("Sell")), &mut HashSet::new()).is_ok());
+        assert!(check_trade_row(&row(None), &mut HashSet::new()).is_ok());
         assert!(matches!(
-            validate_trades(&[row(Some("bid"))]),
+            check_trade_row(&row(Some("bid")), &mut HashSet::new()),
             Err(NormalizeError::Validation(_))
         ));
     }
@@ -1762,13 +1983,13 @@ mod tests {
             gap_started: None,
             gap_ended: None,
         };
-        assert!(validate_trades(&[trade(100, 100)]).is_ok());
+        assert!(check_trade_row(&trade(100, 100), &mut HashSet::new()).is_ok());
         assert!(matches!(
-            validate_trades(&[trade(DECIMAL_MAX_RAW + 1, 1)]),
+            check_trade_row(&trade(DECIMAL_MAX_RAW + 1, 1), &mut HashSet::new()),
             Err(NormalizeError::Validation(_))
         ));
         assert!(matches!(
-            validate_trades(&[trade(1, DECIMAL_MAX_RAW + 1)]),
+            check_trade_row(&trade(1, DECIMAL_MAX_RAW + 1), &mut HashSet::new()),
             Err(NormalizeError::Validation(_))
         ));
 
@@ -1792,9 +2013,9 @@ mod tests {
             gap_started: None,
             gap_ended: None,
         };
-        assert!(validate_top_books(&[top(100)]).is_ok());
+        assert!(check_top_book_row(&top(100), &mut HashSet::new()).is_ok());
         assert!(matches!(
-            validate_top_books(&[top(DECIMAL_MAX_RAW + 1)]),
+            check_top_book_row(&top(DECIMAL_MAX_RAW + 1), &mut HashSet::new()),
             Err(NormalizeError::Validation(_))
         ));
     }
@@ -2147,6 +2368,222 @@ mod tests {
 
         std::fs::remove_dir_all(&input).unwrap();
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn chunking_changes_packaging_not_rows() {
+        // The streaming-design cross test: the same logical records under
+        // different chunkings must yield the same files with the same logical
+        // rows. Byte-identity across chunkings is NOT promised (row groups
+        // differ by construction); read-back equality is, and this proves it.
+        use astra_types::GapMarker;
+
+        /// One table's read-back fingerprint: name, sorted seqs, sorted values.
+        type TableFingerprint = (String, Vec<Option<u64>>, Vec<Option<i128>>);
+        fn uint_column(batches: &[RecordBatch], name: &str) -> Vec<Option<u64>> {
+            let mut values = Vec::new();
+            for batch in batches {
+                let column = batch
+                    .column_by_name(name)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<arrow::array::UInt64Array>()
+                    .unwrap();
+                for index in 0..column.len() {
+                    values.push((!column.is_null(index)).then(|| column.value(index)));
+                }
+            }
+            values
+        }
+
+        fn mixed_records() -> Vec<CaptureRecord> {
+            let marker = GapMarker {
+                started_at: Timestamp::from_unix_nanos(1_700_000_000_000_000_000),
+                ended_at: Timestamp::from_unix_nanos(1_700_000_000_100_000_000),
+                attempts: 1,
+                reason: "venue_close".to_owned(),
+            };
+            let mut gap = record(
+                4,
+                Channel::BookDiff,
+                1_700_000_000_400_000_000,
+                serde_json::to_vec(&marker).unwrap(),
+            );
+            gap.flags = CaptureFlags::SYNTHETIC
+                .union(CaptureFlags::SEQUENCE_GAP)
+                .union(CaptureFlags::UNRELIABLE);
+            vec![
+                record(
+                    0,
+                    Channel::BookDiff,
+                    1_700_000_000_000_000_000,
+                    DEPTH_FRAME.as_bytes().to_vec(),
+                ),
+                record_as(
+                    1,
+                    &bybit_instrument(),
+                    Channel::Trade,
+                    1_700_000_000_100_000_000,
+                    BYBIT_BUNDLE.as_bytes().to_vec(),
+                ),
+                record(
+                    2,
+                    Channel::BookTicker,
+                    1_700_000_000_200_000_000,
+                    BINANCE_TICKER.as_bytes().to_vec(),
+                ),
+                record(
+                    3,
+                    Channel::Funding,
+                    1_700_000_000_300_000_000,
+                    b"{}".to_vec(),
+                ),
+                gap,
+                record(
+                    5,
+                    Channel::BookDiff,
+                    1_700_000_000_500_000_000,
+                    b"not json".to_vec(),
+                ),
+                record(
+                    6,
+                    Channel::BookDiff,
+                    1_700_000_000_600_000_000,
+                    NEXT_FRAME.as_bytes().to_vec(),
+                ),
+            ]
+        }
+
+        fn no_staging_files_left(output: &Path) {
+            let mut stack = vec![output.to_owned()];
+            while let Some(directory) = stack.pop() {
+                for entry in std::fs::read_dir(&directory).unwrap().flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else {
+                        assert_ne!(
+                            path.extension().and_then(|ext| ext.to_str()),
+                            Some("tmp"),
+                            "staging file leaked: {}",
+                            path.display()
+                        );
+                    }
+                }
+            }
+        }
+
+        // Table name from the Hive path, for grouping files across chunkings.
+        fn table_of(path: &Path) -> &str {
+            for component in path.components() {
+                let name = component.as_os_str().to_str().unwrap_or("");
+                if name == "channel=trade" {
+                    return "trade";
+                }
+                if name == "channel=book_ticker" {
+                    return "topbook";
+                }
+            }
+            "diff"
+        }
+
+        let mut first_layout: Option<Vec<String>> = None;
+        let mut first_tables: Option<Vec<TableFingerprint>> = None;
+
+        for per_chunk in [1usize, 100] {
+            let input = temp_directory(&format!("cross-{per_chunk}"));
+            let output = temp_directory(&format!("cross-{per_chunk}-out"));
+            write_capture_chunked(&input, per_chunk, mixed_records());
+
+            let summary = normalize(&input, &output).unwrap();
+            assert_eq!(summary.records, 7);
+            assert_eq!(summary.rows_written, 7);
+            assert_eq!(summary.skipped_unsupported_channel, 1);
+            assert_eq!(summary.files.len(), 3);
+            no_staging_files_left(&output);
+
+            let relative = |root: &Path, path: &Path| {
+                path.strip_prefix(root)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+            };
+            let mut layout: Vec<String> = summary
+                .files
+                .iter()
+                .map(|path| relative(&output, path))
+                .collect();
+            layout.sort();
+
+            // Per table: sorted seqs plus one sorted value column. Equal
+            // multisets across chunkings = the same logical rows survived.
+            let mut tables: Vec<TableFingerprint> = Vec::new();
+            let mut files = parquet_files(&output);
+            files.sort();
+            for path in &files {
+                let (batches, _) = read_table(path);
+                let mut seqs = uint_column(&batches, "seq");
+                seqs.sort();
+                let values = match table_of(path) {
+                    "trade" => {
+                        let mut prices = decimal_column(&batches, "price");
+                        prices.sort();
+                        prices
+                    }
+                    "topbook" => {
+                        let mut bids = decimal_column(&batches, "best_bid");
+                        bids.sort();
+                        bids
+                    }
+                    _ => {
+                        let mut firsts = uint_column(&batches, "first_update_id")
+                            .into_iter()
+                            .map(|id| id.map(|id| id as i128))
+                            .collect::<Vec<_>>();
+                        firsts.sort();
+                        firsts
+                    }
+                };
+                tables.push((table_of(path).to_owned(), seqs, values));
+            }
+            tables.sort_by(|a, b| a.0.cmp(&b.0));
+
+            if let (Some(expected_layout), Some(expected_tables)) =
+                (first_layout.as_ref(), first_tables.as_ref())
+            {
+                assert_eq!(&layout, expected_layout, "file layout differs");
+                assert_eq!(&tables, expected_tables, "logical rows differ");
+            } else {
+                // Hand-computed expectations for the fixture itself.
+                assert_eq!(
+                    tables
+                        .iter()
+                        .find(|table| table.0 == "diff")
+                        .map(|table| table.1.clone()),
+                    Some(vec![Some(0), Some(4), Some(5), Some(6)])
+                );
+                assert_eq!(
+                    tables
+                        .iter()
+                        .find(|table| table.0 == "trade")
+                        .map(|table| table.1.clone()),
+                    Some(vec![Some(1), Some(1)])
+                );
+                assert_eq!(
+                    tables
+                        .iter()
+                        .find(|table| table.0 == "topbook")
+                        .map(|table| table.1.clone()),
+                    Some(vec![Some(2)])
+                );
+                first_layout = Some(layout);
+                first_tables = Some(tables);
+            }
+
+            std::fs::remove_dir_all(&input).unwrap();
+            std::fs::remove_dir_all(&output).unwrap();
+        }
     }
 
     #[test]
