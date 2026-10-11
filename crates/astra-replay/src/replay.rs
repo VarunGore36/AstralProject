@@ -9,7 +9,7 @@ use astra_book::{BookDiff, BookSnapshot, UpdateSpan};
 use astra_record::capture::{FRAMES_DIR, MANIFEST_FILE};
 use astra_record::feed;
 use astra_record::store;
-use astra_types::{CaptureFlags, CaptureManifest, Channel, GapMarker, Timestamp};
+use astra_types::{CaptureFlags, CaptureManifest, CaptureRecord, Channel, GapMarker, Timestamp};
 
 #[derive(Debug, Error)]
 pub enum ReplayError {
@@ -120,24 +120,34 @@ pub struct ReplayReport {
     pub signal_hash: String,
 }
 
+/// Replay a capture through a strategy, chunk by chunk.
+///
+/// Memory is O(largest chunk) for inputs, never O(capture): each chunk is
+/// hash-verified, decoded, fed to the strategy, and dropped before the next
+/// one is read. One streaming pass over the chunk index:
+///
+/// - `seq` continuity is enforced across chunk boundaries (a break aborts
+///   like a torn manifest; the writer assigns `seq`, so a healthy capture
+///   never trips this).
+/// - The manifest count is verified at the end of the stream. A torn
+///   manifest aborts with no report — but, like any mid-stream abort (e.g.
+///   an undecodable gap marker), the strategy may already have observed
+///   events. Fail-loud means no report escapes, not zero emission.
+///
+/// Gap semantics, ordering rules, and the virtual clock are untouched.
+/// On healthy inputs the report is identical to the load-all path's.
+///
+/// (Signal accumulation itself is O(events) for chatty strategies — the
+/// signals *are* the hashed output, not input buffering. See
+/// `docs/streaming-design.md`.)
 pub fn replay(
     input: &Path,
     seed: u64,
     strategy: &mut dyn Strategy,
 ) -> Result<ReplayReport, ReplayError> {
     let manifest = read_manifest(input)?;
-    let records = store::read_all(&input.join(FRAMES_DIR))?;
-
-    let venue_frames: u64 = records
-        .iter()
-        .filter(|record| !record.flags.contains(CaptureFlags::SYNTHETIC))
-        .count() as u64;
-    if venue_frames != manifest.frames_written {
-        return Err(ReplayError::Malformed(format!(
-            "manifest claims {} venue frames but the capture holds {}",
-            manifest.frames_written, venue_frames
-        )));
-    }
+    let frames_dir = input.join(FRAMES_DIR);
+    let index = store::read_index(&frames_dir)?;
 
     let mut ctx = Context {
         now: Timestamp::from_unix_nanos(0),
@@ -145,114 +155,31 @@ pub fn replay(
         signals: Vec::new(),
     };
     let mut report = ReplayReport::default();
+    let mut expected_seq = 0u64;
+    let mut venue_frames = 0u64;
 
-    for record in &records {
-        report.frames += 1;
-        ctx.now = record.ts_socket;
-
-        if record.flags.contains(CaptureFlags::SYNTHETIC) {
-            let marker: GapMarker = serde_json::from_slice(&record.payload).map_err(|error| {
-                ReplayError::Malformed(format!("seq {}: bad gap marker: {error}", record.seq))
-            })?;
-            strategy.on_gap(&marker, &mut ctx);
-            report.gaps += 1;
-            report.events_emitted += 1;
-            continue;
-        }
-
-        if record.channel != Channel::BookDiff
-            && record.channel != Channel::Trade
-            && record.channel != Channel::BookTicker
-        {
-            report.skipped_channel += 1;
-            continue;
-        }
-
-        let venue = record.instrument.venue();
-
-        if record.channel == Channel::Trade {
-            match feed::trade_prints(venue, record.channel, &record.payload) {
-                Some(prints) if !prints.is_empty() => {
-                    for (index, print) in prints.into_iter().enumerate() {
-                        strategy.on_trade(
-                            &TradeEvent {
-                                seq: record.seq,
-                                print_index: index as u32,
-                                ts_socket: record.ts_socket,
-                                ts_exchange: print.ts_exchange,
-                                trade: print,
-                            },
-                            &mut ctx,
-                        );
-                        report.trade_events += 1;
-                        report.events_emitted += 1;
-                    }
-                    continue;
-                }
-                _ => {
-                    report.skipped_unparseable += 1;
-                    continue;
-                }
+    for entry in &index {
+        for record in read_verified_chunk(&frames_dir, entry)? {
+            if record.seq != expected_seq {
+                return Err(ReplayError::Malformed(format!(
+                    "seq break: expected {expected_seq}, found {} (chunk {})",
+                    record.seq, entry.name
+                )));
             }
-        }
-
-        if record.channel == Channel::BookTicker {
-            match feed::top_of_book(venue, record.channel, &record.payload) {
-                Some(top) => {
-                    strategy.on_top_of_book(
-                        &TopBookEvent {
-                            seq: record.seq,
-                            ts_socket: record.ts_socket,
-                            ts_exchange: top.ts_exchange,
-                            top,
-                        },
-                        &mut ctx,
-                    );
-                    report.top_book_events += 1;
-                    report.events_emitted += 1;
-                    continue;
-                }
-                None => {
-                    report.skipped_unparseable += 1;
-                    continue;
-                }
+            // Wrapping, not checked: at u64::MAX the next expected value is
+            // unrepresentable, and any following record mismatches anyway.
+            expected_seq = record.seq.wrapping_add(1);
+            if !record.flags.contains(CaptureFlags::SYNTHETIC) {
+                venue_frames += 1;
             }
+            feed_record(&record, strategy, &mut ctx, &mut report)?;
         }
-
-        if let Some(snapshot) = feed::inband_snapshot(venue, record.channel, &record.payload) {
-            strategy.on_snapshot(
-                &SnapshotEvent {
-                    seq: record.seq,
-                    ts_socket: record.ts_socket,
-                    snapshot,
-                },
-                &mut ctx,
-            );
-            report.events_emitted += 1;
-            continue;
-        }
-
-        let (Some(span), Some(diff)) = (
-            feed::update_span(venue, record.channel, &record.payload),
-            feed::book_diff(venue, record.channel, &record.payload),
-        ) else {
-            report.skipped_unparseable += 1;
-            continue;
-        };
-
-        strategy.on_book_diff(
-            &BookDiffEvent {
-                seq: record.seq,
-                ts_socket: record.ts_socket,
-                ts_exchange: record
-                    .ts_exchange
-                    .or_else(|| feed::exchange_time(venue, record.channel, &record.payload)),
-                span,
-                diff,
-            },
-            &mut ctx,
-        );
-        report.events_emitted += 1;
+    }
+    if venue_frames != manifest.frames_written {
+        return Err(ReplayError::Malformed(format!(
+            "manifest claims {} venue frames but the capture holds {}",
+            manifest.frames_written, venue_frames
+        )));
     }
 
     strategy.on_end(report.frames, &mut ctx);
@@ -260,6 +187,142 @@ pub fn replay(
     report.signal_hash = signal_hash(&ctx.signals);
 
     Ok(report)
+}
+
+/// Read one chunk with the same guarantees `read_all` gave the old path:
+/// the bytes hash to the index entry, and the decoded count matches it.
+/// A hand-edited count passes verification but must not pass reading.
+fn read_verified_chunk(
+    frames_dir: &Path,
+    entry: &store::ChunkIndexEntry,
+) -> Result<Vec<CaptureRecord>, ReplayError> {
+    let path = frames_dir.join(&entry.name);
+    store::verify_chunk(&path, &entry.sha256)?;
+    let chunk = store::read_chunk(&path)?;
+    if chunk.len() as u64 != entry.records {
+        return Err(ReplayError::Malformed(format!(
+            "{}: index claims {} records but the chunk holds {}",
+            entry.name,
+            entry.records,
+            chunk.len()
+        )));
+    }
+    Ok(chunk)
+}
+
+fn feed_record(
+    record: &CaptureRecord,
+    strategy: &mut dyn Strategy,
+    ctx: &mut Context,
+    report: &mut ReplayReport,
+) -> Result<(), ReplayError> {
+    report.frames += 1;
+    ctx.now = record.ts_socket;
+
+    if record.flags.contains(CaptureFlags::SYNTHETIC) {
+        let marker: GapMarker = serde_json::from_slice(&record.payload).map_err(|error| {
+            ReplayError::Malformed(format!("seq {}: bad gap marker: {error}", record.seq))
+        })?;
+        strategy.on_gap(&marker, ctx);
+        report.gaps += 1;
+        report.events_emitted += 1;
+        return Ok(());
+    }
+
+    if record.channel != Channel::BookDiff
+        && record.channel != Channel::Trade
+        && record.channel != Channel::BookTicker
+    {
+        report.skipped_channel += 1;
+        return Ok(());
+    }
+
+    let venue = record.instrument.venue();
+
+    if record.channel == Channel::Trade {
+        match feed::trade_prints(venue, record.channel, &record.payload) {
+            Some(prints) if !prints.is_empty() => {
+                for (index, print) in prints.into_iter().enumerate() {
+                    strategy.on_trade(
+                        &TradeEvent {
+                            seq: record.seq,
+                            print_index: index as u32,
+                            ts_socket: record.ts_socket,
+                            ts_exchange: print.ts_exchange,
+                            trade: print,
+                        },
+                        ctx,
+                    );
+                    report.trade_events += 1;
+                    report.events_emitted += 1;
+                }
+                return Ok(());
+            }
+            _ => {
+                report.skipped_unparseable += 1;
+                return Ok(());
+            }
+        }
+    }
+
+    if record.channel == Channel::BookTicker {
+        match feed::top_of_book(venue, record.channel, &record.payload) {
+            Some(top) => {
+                strategy.on_top_of_book(
+                    &TopBookEvent {
+                        seq: record.seq,
+                        ts_socket: record.ts_socket,
+                        ts_exchange: top.ts_exchange,
+                        top,
+                    },
+                    ctx,
+                );
+                report.top_book_events += 1;
+                report.events_emitted += 1;
+                return Ok(());
+            }
+            None => {
+                report.skipped_unparseable += 1;
+                return Ok(());
+            }
+        }
+    }
+
+    if let Some(snapshot) = feed::inband_snapshot(venue, record.channel, &record.payload) {
+        strategy.on_snapshot(
+            &SnapshotEvent {
+                seq: record.seq,
+                ts_socket: record.ts_socket,
+                snapshot,
+            },
+            ctx,
+        );
+        report.events_emitted += 1;
+        return Ok(());
+    }
+
+    let (Some(span), Some(diff)) = (
+        feed::update_span(venue, record.channel, &record.payload),
+        feed::book_diff(venue, record.channel, &record.payload),
+    ) else {
+        report.skipped_unparseable += 1;
+        return Ok(());
+    };
+
+    strategy.on_book_diff(
+        &BookDiffEvent {
+            seq: record.seq,
+            ts_socket: record.ts_socket,
+            ts_exchange: record
+                .ts_exchange
+                .or_else(|| feed::exchange_time(venue, record.channel, &record.payload)),
+            span,
+            diff,
+        },
+        ctx,
+    );
+    report.events_emitted += 1;
+    Ok(())
 }
 
 pub fn signal_hash(signals: &[Signal]) -> String {
@@ -837,5 +900,191 @@ mod tests {
         ] {
             assert!(text.contains(line), "missing line: {line}\n{text}");
         }
+    }
+
+    const TRADE_BUNDLE: &str = r#"{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304486868,"data":[{"T":1672304486865,"s":"BTCUSDT","S":"Buy","v":"0.001","p":"16578.50","i":"aaa","seq":1},{"T":1672304486866,"s":"BTCUSDT","S":"Sell","v":"0.002","p":"16578.51","i":"bbb","seq":2}]}"#;
+
+    fn channel_record(
+        seq: u64,
+        instrument: &Instrument,
+        channel: Channel,
+        payload: Vec<u8>,
+    ) -> CaptureRecord {
+        CaptureRecord {
+            seq,
+            instrument: instrument.clone(),
+            channel,
+            ts_socket: Timestamp::from_unix_nanos(1_700_000_000_000_000_000 + seq as i64),
+            ts_exchange: None,
+            payload,
+            flags: CaptureFlags::NONE,
+        }
+    }
+
+    /// A seven-frame capture spread over four chunks (two records per chunk)
+    /// exercising every replay path: diffs, bundle-expanded trades, topbook,
+    /// a skipped channel, a gap marker, and an unparseable frame.
+    fn write_mixed_capture(output: &Path, records_per_chunk: usize) {
+        let spot = instrument();
+        let bybit_spot = bybit_instrument();
+        let book_ticker = include_str!("../../astra-record/testdata/binance_book_ticker.json");
+        let marker = GapMarker {
+            started_at: Timestamp::from_unix_nanos(1_700_000_000_000_000_000),
+            ended_at: Timestamp::from_unix_nanos(1_700_000_000_100_000_000),
+            attempts: 1,
+            reason: "venue_close".to_owned(),
+        };
+        let mut gap = channel_record(
+            4,
+            &spot,
+            Channel::BookDiff,
+            serde_json::to_vec(&marker).unwrap(),
+        );
+        gap.flags = CaptureFlags::SYNTHETIC
+            .union(CaptureFlags::SEQUENCE_GAP)
+            .union(CaptureFlags::UNRELIABLE);
+
+        let records = vec![
+            channel_record(0, &spot, Channel::BookDiff, DEPTH_FRAME.as_bytes().to_vec()),
+            channel_record(
+                1,
+                &bybit_spot,
+                Channel::Trade,
+                TRADE_BUNDLE.as_bytes().to_vec(),
+            ),
+            channel_record(
+                2,
+                &spot,
+                Channel::BookTicker,
+                book_ticker.as_bytes().to_vec(),
+            ),
+            channel_record(3, &spot, Channel::Funding, b"{}".to_vec()),
+            gap,
+            channel_record(5, &spot, Channel::BookDiff, b"not json".to_vec()),
+            channel_record(6, &spot, Channel::BookDiff, NEXT_FRAME.as_bytes().to_vec()),
+        ];
+
+        std::fs::create_dir_all(output.join(FRAMES_DIR)).unwrap();
+        let mut writer =
+            store::ChunkWriter::open(output.join(FRAMES_DIR), records_per_chunk).unwrap();
+        for record in &records {
+            writer.append(record).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let manifest = CaptureManifest {
+            schema_version: astra_types::SCHEMA_VERSION,
+            capture_id: CaptureId::new("replay-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: spot,
+            channel: Channel::BookDiff,
+            frames_written: 6,
+            stop_reason: None,
+        };
+        astra_record::capture::write_manifest(output, &manifest).unwrap();
+    }
+
+    fn assert_mixed_report(report: &ReplayReport, strategy: &Recorder) {
+        assert_eq!(report.frames, 7);
+        assert_eq!(report.events_emitted, 6);
+        assert_eq!(report.trade_events, 2);
+        assert_eq!(report.top_book_events, 1);
+        assert_eq!(report.gaps, 1);
+        assert_eq!(report.skipped_channel, 1);
+        assert_eq!(report.skipped_unparseable, 1);
+        assert_eq!(report.signals, 6);
+        assert_eq!(report.signal_hash.len(), 64);
+        assert_eq!(strategy.diffs, 2);
+        assert_eq!(strategy.trades, 2);
+        assert_eq!(strategy.topbooks, 1);
+        assert_eq!(strategy.gaps, 1);
+        assert_eq!(strategy.snapshots, 0);
+        assert_eq!(strategy.ends, 1);
+    }
+
+    #[test]
+    fn a_multi_chunk_capture_replays_like_a_single_chunk_one() {
+        // Hand-computed expectations, not recorded outputs: this test passes
+        // against the load-all implementation and must keep passing against
+        // the chunk-streamed one, proving byte-identical behavior.
+        for records_per_chunk in [1, 2, 100] {
+            let input = temp_directory(&format!("mixed-{records_per_chunk}"));
+            write_mixed_capture(&input, records_per_chunk);
+
+            let mut strategy = Recorder::plain();
+            let report = replay(&input, 7, &mut strategy).unwrap();
+            assert_mixed_report(&report, &strategy);
+
+            // The plain strategy never reads the RNG: seeds must agree.
+            let mut other = Recorder::plain();
+            let rerun = replay(&input, 8, &mut other).unwrap();
+            assert_eq!(report.signal_hash, rerun.signal_hash);
+
+            std::fs::remove_dir_all(&input).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_torn_manifest_in_a_multi_chunk_capture_aborts_with_no_report() {
+        let input = temp_directory("torn-multi");
+        write_mixed_capture(&input, 2);
+
+        let body = std::fs::read_to_string(input.join(MANIFEST_FILE)).unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_str(&body).unwrap();
+        manifest["frames_written"] = serde_json::json!(99);
+        std::fs::write(
+            input.join(MANIFEST_FILE),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let mut strategy = Recorder::plain();
+        assert!(matches!(
+            replay(&input, 7, &mut strategy),
+            Err(ReplayError::Malformed(_))
+        ));
+
+        std::fs::remove_dir_all(&input).unwrap();
+    }
+
+    #[test]
+    fn a_seq_break_across_chunks_aborts_like_a_torn_manifest() {
+        // Chunks of one: seq 0 lands in chunk 0, seq 2 in chunk 1. The writer
+        // assigns seq, so a healthy capture never trips this; a spliced one
+        // must fail loud, not replay a torn stream.
+        let input = temp_directory("seq-break");
+        std::fs::create_dir_all(input.join(FRAMES_DIR)).unwrap();
+        let mut writer = store::ChunkWriter::open(input.join(FRAMES_DIR), 1).unwrap();
+        writer
+            .append(&record(0, &instrument(), DEPTH_FRAME.as_bytes().to_vec()))
+            .unwrap();
+        writer
+            .append(&record(2, &instrument(), NEXT_FRAME.as_bytes().to_vec()))
+            .unwrap();
+        writer.finish().unwrap();
+
+        let manifest = CaptureManifest {
+            schema_version: astra_types::SCHEMA_VERSION,
+            capture_id: CaptureId::new("replay-test"),
+            created_at: Timestamp::from_unix_nanos(0),
+            instrument: instrument(),
+            channel: Channel::BookDiff,
+            frames_written: 2,
+            stop_reason: None,
+        };
+        astra_record::capture::write_manifest(&input, &manifest).unwrap();
+
+        let mut strategy = Recorder::plain();
+        let error = replay(&input, 7, &mut strategy).unwrap_err();
+        assert!(
+            matches!(error, ReplayError::Malformed(_)),
+            "expected a loud seq-break abort, got: {error}"
+        );
+        // Mid-stream aborts surface after prior events, like undecodable gap
+        // markers always have: the guarantee is fail-loud (no report), not
+        // zero emission.
+        assert_eq!(strategy.diffs, 1);
+
+        std::fs::remove_dir_all(&input).unwrap();
     }
 }

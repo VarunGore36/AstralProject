@@ -1,10 +1,11 @@
-# Streaming replay and normalization (design)
+# Streaming replay and normalization (design + replay build note)
 
-Status: **specification only, not implemented.** Audit finding 1: only
-`check` streams chunk-by-chunk; replay and normalize `read_all` the whole
-capture, needing single-digit GB for a full soak on the measured curve
-(~45 MB per 100k frames replay, ~115 MB normalize, debug builds). This
-document fixes the design before anyone writes code against it, so the
+Status: **replay streams chunk-by-chunk (implemented — see "As built" and
+the acceptance record); normalization is still spec-only.** Audit finding
+1: only `check` streamed chunk-by-chunk; replay and normalize `read_all`ed
+the whole capture, needing single-digit GB for a full soak on the measured
+curve (~45 MB per 100k frames replay, ~115 MB normalize, debug builds).
+This document fixed the design before anyone wrote code against it, so the
 determinism guarantees survive the refactor.
 
 ## Non-negotiables
@@ -35,6 +36,29 @@ surfaced — decide during implementation, default to erroring like a torn
 manifest). Gap semantics, ordering rules, and the virtual clock are
 untouched. Memory becomes O(largest chunk), not O(capture).
 
+### As built (replay, 2026-10-11)
+
+Single streaming pass: each chunk is hash-verified, count-checked against
+its index entry (the doctored-index guarantee the old path had), and fed to
+the strategy before the next chunk is read. `seq` breaks abort as
+`Malformed`, like a torn manifest — this caught a real spliced capture
+during measurement (a resumed writer colliding `seq`, refused loud instead
+of replaying 600k frames of two overlapping streams). The manifest count is
+verified at end-of-stream: a torn manifest aborts with no report, though
+the strategy may have observed events first — exactly like any mid-stream
+abort (undecodable gap markers always behaved this way). A single pass was
+chosen over a count-then-feed double pass after measurement showed the
+double pass decoding every chunk twice for no behavioral gain.
+
+Measured on a 300k-frame synthetic capture (debug build, peak child RSS):
+trade-tally 141 MB → 12 MB (~12×); book-top 141 MB → 96 MB in 3 large
+chunks. In 151 small chunks book-top peaks higher (~275 MB) from
+debug-allocator churn across 151 alloc/free cycles, not from live data —
+live inputs are one chunk in all cases. Per-event-signal strategies also
+accumulate their own output (signals are the hashed result, O(events) by
+design); eliminating *input* buffering is what this port guarantees, and
+trade-tally proves it end to end.
+
 ## Shape of the solution (normalize)
 
 Harder, because outputs group by (instrument, date) while inputs stream by
@@ -64,9 +88,14 @@ time. Two-pass design:
 
 ## Acceptance
 
-- All current determinism tests pass unmodified, plus the cross test above
-  on a multi-chunk capture.
-- Peak RSS on the 300k-frame synthetic capture drops by an order of
-  magnitude for both paths (measure with the same VmHWM method).
+- [x] Replay: all determinism tests pass unmodified, plus a multi-chunk
+  cross test (1/2/100 records-per-chunk over a mixed seven-frame capture
+  with hand-computed expectations) and seq-break / torn-manifest aborts.
+- [ ] Normalize: the same cross test still to come with the streaming port.
+- [~] Peak RSS: replay input buffering eliminated (trade-tally ~12×, book-top
+  bounded by its own signal output — see "As built"). Normalize unmeasured
+  until its port lands.
 - The README determinism rows and the cross-machine procedure state exactly
   which equality holds (bytes vs read-back) — no silent redefinition.
+  (Replay equality stays byte-level; normalize will restate if the two-pass
+  design changes row-group bytes.)

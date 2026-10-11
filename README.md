@@ -202,7 +202,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `research/` | Published research notes, built to `website/research/` by `website/build.py` |
 | `docs/failure-policy.md` | What each subcommand does with the same corruption (read off the code; unification open) |
 | `docs/status-2026-10-10.md` | Project status with charts, flowcharts, gates, and the OSS endgame (figures sourced from the repo) |
-| `docs/streaming-design.md` | Chunk-streamed replay/normalization that preserves determinism (spec only; code open) |
+| `docs/streaming-design.md` | Chunk-streamed replay/normalization that preserves determinism (replay streams since 2026-10-11 with measured RSS; normalize spec open) |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
@@ -736,8 +736,9 @@ which equality broke).
 | Normalizer `top_of_book` to Parquet | live 464-frame Binance capture normalizes to 464 rows; Coinbase parsing covered by parser tests with a real fixture, live-blocked by network | VERIFIED with a stated boundary |
 | Normalizer determinism | same 97-frame live capture normalized twice: identical file trees, identical SHA-256. CI asserts byte equality on every run | VERIFIED |
 | Live replay determinism | 96-frame live capture replayed under seeds 7 and 99 via `book-top`: 96 signals each, identical hashes. Seed-independence measured, not assumed | VERIFIED |
-| Replay `trade` + `top_of_book` events | Bybit 2-print bundle expands to 2 trade events with `print_index`; Binance `bookTicker` fixture replays to 1 topbook event; unparseable trade frames and out-of-scope channels counted not crashed. Parser-tested + CI (10 replay tests), live multi-channel soak still open | VERIFIED with a stated boundary |
+| Replay `trade` + `top_of_book` events | Bybit 2-print bundle expands to 2 trade events with `print_index`; Binance `bookTicker` fixture replays to 1 topbook event; unparseable trade frames and out-of-scope channels counted not crashed. Parser-tested + CI (18 replay tests), live multi-channel soak still open | VERIFIED with a stated boundary |
 | Ten-replay ritual | 151-frame live capture replayed 10 times under one seed: 10 identical signal hashes (`b098a501…`). The Gate 1 repetition bar, performed on real data | VERIFIED |
+| Streaming replay | 300k-frame synthetic capture replays chunk-by-chunk with byte-identical reports (identical signal hashes load-all vs streamed, both strategies); trade-tally peak RSS 141 MB → 12 MB. `seq` breaks across chunks abort loud; multi-chunk torn manifests abort with no report | VERIFIED (fixture; live multi-channel run open) |
 | Bybit `liquidation` connectivity | subscribe to `allLiquidation.BTCUSDT` accepted, connection held for the full duration, zero liquidation events in 8s. The channel is proven connected, not proven delivering — absence of liquidations is market state, not a test result | CONNECTED, NOT VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
