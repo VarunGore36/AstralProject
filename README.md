@@ -191,7 +191,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-replay` | Deterministic replay: event core (`book_diff` + `trade` + `top_of_book`), `book-top` strategy, CLI |
 | `crates/astra-exec` | Conservative fills: limit-maker simulation over trade prints, required fee tier, plus a probe CLI (`exec-v1`) |
 | `crates/astra-harness` | Benchmark harness (`bench-v1`): one replay pass + N probes → canonical hashed report, plus a local registry (`run --record`, `list`, `verify` with reproduction verdicts) |
-| `crates/astra-python` | Python bindings foothold (`astra` module): exact decimal arithmetic and clock reads, embedded-tested; importable from a plain build (`crate-type` cdylib+rlib, copy `libastra.so` to `astra.so`) |
+| `crates/astra-python` | Python research SDK (`astra` module): exact decimals, conservative fills, clock reads, plus `normalize_capture` / `replay_capture` / `replay_tables` running the full loop from Python with built-in strategies; embedded-tested, maturin wheel CI-verified |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables, implemented for `book_diff`, `trade`, `top_of_book` |
 | `docs/replay-design.md` | The v1 contract for the deterministic replay engine, implemented in `astra-replay` |
 | `docs/cross-machine-repro.md` | The cross-machine reproduction procedure (hashes compared, execution open) |
@@ -808,6 +808,7 @@ which equality broke).
 | Soak guards against double-start | `start` refuses already-running streams and chunk-holding dirs instead of launching doomed duplicates; `status` reports never-started dirs distinctly (both paths demoed) | OPERATIONAL |
 | Python bindings foothold | `astra` module with exact decimal arithmetic and clock reads, tested through the embedded interpreter on Python 3.14; maturin wheel builds, installs, and passes the import smoke test (CI-verified) | PACKAGED |
 | Fills from Python | `simulate_fill` answers print math over JSON-able tuples (gaps explicitly out of scope — use the probe for gap-bearing streams); live import demoed | TESTED |
+| Full loop from Python | `normalize_capture` → `replay_capture`/`replay_tables` dicts (records, rows, report incl. `signal_hash`); raw ≡ normalized hashes proven through the bindings too; unknown strategies raise `ValueError` | TESTED |
 | `import astra` without maturin | cdylib+rlib crate types keep tests green while `cargo build` produces an importable module (verified: parse/mul/clock/div0 live in Python 3.14) | IMPORTABLE |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |

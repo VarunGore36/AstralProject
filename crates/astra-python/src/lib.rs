@@ -14,6 +14,7 @@
 use astra_types::{Fixed, Timestamp};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 fn parse_fixed_arg(s: &str) -> PyResult<Fixed> {
     s.parse()
@@ -125,11 +126,110 @@ fn simulate_fill(
     serde_json::to_string(&outcome).map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
+/// Normalize a capture directory into Hive-partitioned Parquet.
+///
+/// Returns a dict with `records`, `rows_written`,
+/// `skipped_unsupported_channel`, and `files` (final part paths). Any
+/// Rust-side failure raises `ValueError` with the engine's message —
+/// including torn manifests and validation rejections.
+#[pyfunction]
+fn normalize_capture<'py>(
+    py: Python<'py>,
+    input: &str,
+    output: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let summary =
+        astra_normalize::normalize(std::path::Path::new(input), std::path::Path::new(output))
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let dict = PyDict::new(py);
+    dict.set_item("records", summary.records)?;
+    dict.set_item("rows_written", summary.rows_written)?;
+    dict.set_item(
+        "skipped_unsupported_channel",
+        summary.skipped_unsupported_channel,
+    )?;
+    let files: Vec<String> = summary
+        .files
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+    dict.set_item("files", files)?;
+    Ok(dict)
+}
+
+/// Replay a capture through a built-in strategy (`"book-top"` or
+/// `"trade-tally"`) and return the report as a dict. Custom strategies stay
+/// in Rust for now; this covers the full record → normalize → replay loop
+/// from a notebook.
+#[pyfunction]
+fn replay_capture<'py>(
+    py: Python<'py>,
+    capture: &str,
+    seed: u64,
+    strategy: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let report = run_with(strategy, |strategy| {
+        astra_replay::replay(std::path::Path::new(capture), seed, strategy)
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    })?;
+    report_dict(py, &report)
+}
+
+/// Replay a normalized Parquet tree through a built-in strategy. Null rows
+/// replay as counted skips — the same answer as raw replay, proven by the
+/// `raw_and_normalized_replay_emit_identical_signals` test.
+#[pyfunction]
+fn replay_tables<'py>(
+    py: Python<'py>,
+    tables: &str,
+    seed: u64,
+    strategy: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let report = run_with(strategy, |strategy| {
+        astra_replay::replay_normalized(std::path::Path::new(tables), seed, strategy)
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    })?;
+    report_dict(py, &report)
+}
+
+fn run_with(
+    name: &str,
+    run: impl FnOnce(&mut dyn astra_replay::Strategy) -> PyResult<astra_replay::ReplayReport>,
+) -> PyResult<astra_replay::ReplayReport> {
+    match name {
+        "book-top" => run(&mut astra_replay::BookTop::new()),
+        "trade-tally" => run(&mut astra_replay::TradeTally::new()),
+        _ => Err(PyValueError::new_err(format!(
+            "strategy must be \"book-top\" or \"trade-tally\", saw {name:?}"
+        ))),
+    }
+}
+
+fn report_dict<'py>(
+    py: Python<'py>,
+    report: &astra_replay::ReplayReport,
+) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("frames", report.frames)?;
+    dict.set_item("events", report.events_emitted)?;
+    dict.set_item("trades", report.trade_events)?;
+    dict.set_item("topbooks", report.top_book_events)?;
+    dict.set_item("gaps", report.gaps)?;
+    dict.set_item(
+        "skipped",
+        report.skipped_channel + report.skipped_unparseable,
+    )?;
+    dict.set_item("signals", report.signals)?;
+    dict.set_item("signal_hash", report.signal_hash.clone())?;
+    Ok(dict)
+}
+
 #[pymodule]
 mod astra {
     #[pymodule_export]
     use super::{
-        fixed_add, fixed_div, fixed_mul, fixed_sub, parse_fixed, simulate_fill, timestamp_now_ns,
+        fixed_add, fixed_div, fixed_mul, fixed_sub, normalize_capture, parse_fixed, replay_capture,
+        replay_tables, simulate_fill, timestamp_now_ns,
     };
 }
 
@@ -216,6 +316,118 @@ mod tests {
                     ))
                     .is_err()
             );
+        });
+    }
+
+    const DEPTH_FRAME: &str = r#"{"e":"depthUpdate","E":1700000000000,"s":"BTCUSDT","U":100,"u":105,"b":[["108105.12000000","0.00100000"]],"a":[["108105.13000000","0.00200000"]]}"#;
+    const NEXT_FRAME: &str = r#"{"e":"depthUpdate","E":1700000000100,"s":"BTCUSDT","U":106,"u":110,"b":[["108105.11000000","0"]],"a":[]}"#;
+
+    fn write_capture(output: &std::path::Path) {
+        use astra_record::capture::{FRAMES_DIR, write_manifest};
+        use astra_record::store::ChunkWriter;
+        use astra_types::{
+            CaptureFlags, CaptureId, CaptureManifest, Channel, Instrument, MarketType, Symbol,
+            Venue,
+        };
+
+        let instrument = Instrument::new(
+            Venue::Binance,
+            MarketType::Spot,
+            Symbol::new("BTC/USDT").unwrap(),
+        );
+        std::fs::create_dir_all(output.join(FRAMES_DIR)).unwrap();
+        let mut writer = ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        for (seq, payload) in [DEPTH_FRAME, NEXT_FRAME].iter().enumerate() {
+            writer
+                .append(&astra_types::CaptureRecord {
+                    seq: seq as u64,
+                    instrument: instrument.clone(),
+                    channel: Channel::BookDiff,
+                    ts_socket: Timestamp::from_unix_nanos(1_700_000_000_000_000_000 + seq as i64),
+                    ts_exchange: None,
+                    payload: payload.as_bytes().to_vec(),
+                    flags: CaptureFlags::NONE,
+                })
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        write_manifest(
+            output,
+            &CaptureManifest {
+                schema_version: astra_types::SCHEMA_VERSION,
+                capture_id: CaptureId::new("python-test"),
+                created_at: Timestamp::from_unix_nanos(0),
+                instrument,
+                channel: Channel::BookDiff,
+                frames_written: 2,
+                stop_reason: None,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn the_full_loop_runs_from_python() {
+        fn get_u64(dict: &Bound<'_, PyDict>, key: &str) -> u64 {
+            dict.get_item(key).unwrap().unwrap().extract().unwrap()
+        }
+
+        attached(|py| {
+            let capture =
+                std::env::temp_dir().join(format!("astra-py-loop-{}", std::process::id()));
+            let tables =
+                std::env::temp_dir().join(format!("astra-py-loop-out-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&capture);
+            let _ = std::fs::remove_dir_all(&tables);
+            write_capture(&capture);
+
+            let normalize = pyo3::wrap_pyfunction!(normalize_capture, py).unwrap();
+            let report: Bound<'_, PyDict> = normalize
+                .call1((capture.to_str().unwrap(), tables.to_str().unwrap()))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(get_u64(&report, "records"), 2);
+            assert_eq!(get_u64(&report, "rows_written"), 2);
+
+            let replay = pyo3::wrap_pyfunction!(replay_capture, py).unwrap();
+            let raw: Bound<'_, PyDict> = replay
+                .call1((capture.to_str().unwrap(), 7u64, "book-top"))
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(get_u64(&raw, "frames"), 2);
+            assert_eq!(get_u64(&raw, "signals"), 2);
+            let raw_hash: String = raw
+                .get_item("signal_hash")
+                .unwrap()
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(raw_hash.len(), 64);
+
+            let retable = pyo3::wrap_pyfunction!(replay_tables, py).unwrap();
+            let norm: Bound<'_, PyDict> = retable
+                .call1((tables.to_str().unwrap(), 7u64, "book-top"))
+                .unwrap()
+                .extract()
+                .unwrap();
+            let norm_hash: String = norm
+                .get_item("signal_hash")
+                .unwrap()
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(raw_hash, norm_hash);
+
+            assert!(
+                replay
+                    .call1((capture.to_str().unwrap(), 7u64, "oracle"))
+                    .is_err()
+            );
+
+            std::fs::remove_dir_all(&capture).unwrap();
+            std::fs::remove_dir_all(&tables).unwrap();
         });
     }
 }

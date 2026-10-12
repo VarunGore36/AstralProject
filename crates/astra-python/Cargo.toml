@@ -8,6 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 astra-exec = { workspace = true }
+astra-normalize = { workspace = true }
+astra-replay = { workspace = true }
 astra-types = { workspace = true }
 pyo3 = { version = "0.29", features = ["auto-initialize"] }
 serde_json = { workspace = true }
@@ -19,3 +21,6 @@ path = "src/lib.rs"
 # Both targets: rlib keeps `cargo test` working, cdylib produces the
 # importable module (copied to astra.so; no maturin needed for local use).
 crate-type = ["cdylib", "rlib"]
+
+[dev-dependencies]
+astra-record = { workspace = true }

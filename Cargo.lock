@@ -383,6 +383,9 @@ name = "astra-python"
 version = "0.1.0"
 dependencies = [
  "astra-exec",
+ "astra-normalize",
+ "astra-record",
+ "astra-replay",
  "astra-types",
  "pyo3",
  "serde_json",

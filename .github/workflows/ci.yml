@@ -61,5 +61,13 @@ jobs:
 
           # Clock reads exist and advance.
           assert astra.timestamp_now_ns() > 0
+
+          # Research loop entry points exist and fail loud on bad input.
+          try:
+              astra.replay_capture(".", 7, "oracle")
+          except ValueError:
+              pass
+          else:
+              raise SystemExit("unknown strategy should raise ValueError")
           print("astra import smoke: ok")
           EOF
