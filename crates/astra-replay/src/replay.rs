@@ -40,6 +40,22 @@ impl Context {
         self.now
     }
 
+    /// Advance the virtual clock. The normalized reader lives in another
+    /// module, so it sets the clock through this instead of the field.
+    pub fn set_now(&mut self, now: Timestamp) {
+        self.now = now;
+    }
+
+    /// A fresh context for a replay run. Struct-update syntax keeps the
+    /// test-only constructor beside it without duplicating defaults.
+    pub fn seeded(seed: u64) -> Self {
+        Context {
+            now: Timestamp::from_unix_nanos(0),
+            rng: StdRng::seed_from_u64(seed),
+            signals: Vec::new(),
+        }
+    }
+
     pub fn rng(&mut self) -> &mut StdRng {
         &mut self.rng
     }

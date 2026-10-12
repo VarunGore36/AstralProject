@@ -31,7 +31,11 @@ null-field Parquet row · **passthrough** = surfaced to the caller unchanged.
    silent skipping. Every reader now counts or aborts on every row above;
    the remaining structural divergence is rule 2, which needs an engine,
    not a patch.
-2. The null-row vs skip divergence (normalize keeps, replay skips) stands
-   until normalized-replay exists to need one answer.
+2. The null-row vs skip divergence is resolved, not just documented:
+   `replay_normalized` replays null rows as `skipped_unparseable`, and raw
+   ≡ normalized signal hashes are proven by test (`raw_and_normalized_
+   replay_emit_identical_signals`). The Parquet null row stays (seq
+   accounting without invented content), the replay skip stays (no invented
+   events) — one answer, both sides kept.
 3. Any behavior change here updates this table, the subcommand's golden
    tests, and the README verification record together.

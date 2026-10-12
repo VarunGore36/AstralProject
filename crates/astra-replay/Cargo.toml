@@ -11,11 +11,16 @@ name = "astra-replay"
 path = "src/main.rs"
 
 [dependencies]
+arrow.workspace = true
 astra-book.workspace = true
 astra-record.workspace = true
 astra-types.workspace = true
 clap.workspace = true
+parquet.workspace = true
 rand.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+astra-normalize = { path = "../astra-normalize" }

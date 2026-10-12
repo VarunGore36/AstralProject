@@ -413,10 +413,13 @@ dependencies = [
 name = "astra-replay"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "astra-book",
+ "astra-normalize",
  "astra-record",
  "astra-types",
  "clap",
+ "parquet",
  "rand",
  "serde_json",
  "sha2",

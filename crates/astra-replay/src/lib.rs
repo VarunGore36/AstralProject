@@ -1,5 +1,8 @@
+pub mod normalized;
 pub mod replay;
 pub mod strategies;
+
+pub use normalized::replay_normalized;
 
 pub use replay::{
     BookDiffEvent, Context, ReplayError, ReplayReport, Signal, SnapshotEvent, Strategy,
