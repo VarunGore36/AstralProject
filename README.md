@@ -124,7 +124,7 @@ every row states its evidence and its limits.
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
 | Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` and `trade-tally` strategies and CLI, seed-independent live hashes; ten-replay ritual performed; chunk-streamed with `seq` enforcement; normalized replay proves raw ≡ Parquet signals; latency methodology published; cross-machine procedure defined, proof open |
 | Cost and execution model | PARTIALLY IMPLEMENTED — `exec-v1` lib + `astra-exec` probe CLI done (replay trade prints → fills with cited print, 19 unit + 3 integration tests); markouts measured per horizon with gap-voided unknowns; calibration and shadow mode open |
-| Benchmark harness (`astra-harness`) | DONE — one replay pass (book-top + trade collection composed) + N probe simulations → canonical JSON + SHA-256 report hash; fail-closed config, tampered captures refused |
+| Benchmark harness (`astra-harness`) | DONE — one replay pass (book-top + trade collection composed) + N probe simulations → canonical JSON + SHA-256 report hash; optional per-probe markouts ride along without disturbing fills; fail-closed config, tampered captures refused |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
 

@@ -11,7 +11,10 @@
 
 use std::path::{Path, PathBuf};
 
-use astra_exec::{LimitOrder, OrderOutcome, Side, TradeCollector, simulate};
+use astra_exec::{
+    LimitOrder, MarkoutOutcome, OrderOutcome, Side, TimedCollector, TradeCollector, markout,
+    simulate,
+};
 use astra_replay::{BookTop, Context, TradeTally};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -58,6 +61,11 @@ struct BenchmarkConfig {
     strategy: String,
     #[serde(default)]
     probes: Vec<ProbeSpec>,
+    /// Post-fill markout horizons in nanoseconds, applied to every probe.
+    /// Absent (or empty) means no markout section — and byte-identical
+    /// reports to builds before markouts existed.
+    #[serde(default)]
+    markouts_ns: Vec<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -68,6 +76,16 @@ struct ProbeResult {
     fee_bps: u32,
     #[serde(flatten)]
     outcome: OrderOutcome,
+    /// Present only when the config requests horizons. Unfilled probes
+    /// carry all-`None` bps (the reason already sits in `outcome`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    markouts: Option<MarkoutSection>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct MarkoutSection {
+    horizons_ns: Vec<u64>,
+    markouts_bps: Vec<Option<f64>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -91,6 +109,9 @@ enum ReplayStrategy {
 struct HarnessStrategy {
     strategy: ReplayStrategy,
     trades: TradeCollector,
+    /// Collected only when the config requests markout horizons — the fills
+    /// path stays on the untimed collector bit-for-bit otherwise.
+    timed: Option<TimedCollector>,
 }
 
 impl HarnessStrategy {
@@ -107,6 +128,7 @@ impl HarnessStrategy {
         Ok(HarnessStrategy {
             strategy,
             trades: TradeCollector::default(),
+            timed: None,
         })
     }
 }
@@ -126,6 +148,9 @@ impl astra_replay::Strategy for HarnessStrategy {
     }
     fn on_trade(&mut self, event: &astra_replay::TradeEvent, ctx: &mut Context) {
         self.trades.on_trade(event, ctx);
+        if let Some(timed) = &mut self.timed {
+            timed.on_trade(event, ctx);
+        }
     }
     fn on_top_of_book(&mut self, event: &astra_replay::TopBookEvent, ctx: &mut Context) {
         self.trades.on_top_of_book(event, ctx);
@@ -136,6 +161,9 @@ impl astra_replay::Strategy for HarnessStrategy {
             ReplayStrategy::TradeTally(tally) => tally.on_gap(marker, ctx),
         }
         self.trades.on_gap(marker, ctx);
+        if let Some(timed) = &mut self.timed {
+            timed.on_gap(marker, ctx);
+        }
     }
     fn on_end(&mut self, frames: u64, ctx: &mut Context) {
         match &mut self.strategy {
@@ -163,6 +191,22 @@ fn side_name(side: StrategySide) -> &'static str {
     }
 }
 
+/// Flatten a markout outcome into the report section. Unfilled probes carry
+/// all-`None` bps — the void/expiry reason already sits in `outcome`, so no
+/// information is lost and every probe keeps the same shape.
+fn markout_section(outcome: &MarkoutOutcome, horizons_ns: &[u64]) -> MarkoutSection {
+    match outcome {
+        MarkoutOutcome::Filled { markouts_bps, .. } => MarkoutSection {
+            horizons_ns: horizons_ns.to_vec(),
+            markouts_bps: markouts_bps.clone(),
+        },
+        MarkoutOutcome::Unfilled { .. } => MarkoutSection {
+            horizons_ns: horizons_ns.to_vec(),
+            markouts_bps: vec![None; horizons_ns.len()],
+        },
+    }
+}
+
 /// Run the benchmark: one replay pass, N probe simulations, one canonical
 /// report. Returns the exact report bytes (what hits disk), their hash, and
 /// the counts the CLI prints.
@@ -176,6 +220,9 @@ pub fn run_benchmark(input: &Path, config_json: &str) -> Result<BenchmarkRun, Ha
         )));
     }
     let mut strategy = HarnessStrategy::for_name(&config.strategy)?;
+    if !config.markouts_ns.is_empty() {
+        strategy.timed = Some(TimedCollector::default());
+    }
     let replay_report = astra_replay::replay(input, config.seed, &mut strategy)?;
 
     let mut probes = Vec::with_capacity(config.probes.len());
@@ -193,12 +240,20 @@ pub fn run_benchmark(input: &Path, config_json: &str) -> Result<BenchmarkRun, Ha
         if matches!(outcome, OrderOutcome::Filled { .. }) {
             fills += 1;
         }
+        let markouts = match &strategy.timed {
+            Some(timed) => Some(markout_section(
+                &markout(&order, spec.fee_bps, &timed.events, &config.markouts_ns)?,
+                &config.markouts_ns,
+            )),
+            None => None,
+        };
         probes.push(ProbeResult {
             side: side_name(spec.side).to_owned(),
             price: spec.price,
             quantity: spec.quantity,
             fee_bps: spec.fee_bps,
             outcome,
+            markouts,
         });
     }
 

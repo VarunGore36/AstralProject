@@ -45,6 +45,11 @@ the command and compare one hash.
 - Every probe needs an explicit `fee_bps` (same rule as `exec-v1`).
 - Unknown JSON fields are refused (fail-closed parsing): a config that
   means something different than intended must error, not run.
+- Optional `markouts_ns` (array of nanosecond horizons, e.g. `[1000000000]`)
+  attaches a post-fill markout section to every probe: signed bps per
+  horizon, adverse always negative, uncovered horizons `null`. Absent or
+  empty means no section — and byte-identical reports to before markouts
+  existed, so old registry entries keep verifying.
 
 ## Report (JSON, canonical)
 
@@ -71,7 +76,9 @@ Canonical means byte-stable: struct field order is the file order, no hash
 maps anywhere in the path, no timestamps, no wall-clock reads. The report
 hash is SHA-256 over the exact bytes written (pretty JSON plus one trailing
 newline). Unfilled probes report `"result": "unfilled"` with a `reason` field and the
-fill fields absent, not null.
+fill fields absent, not null. Probes in a markout run carry an extra
+`"markouts": {"horizons_ns": [...], "markouts_bps": [...]}` object;
+unfilled probes carry all-`null` bps with the reason in `outcome`.
 
 ## Rules
 

@@ -260,3 +260,79 @@ fn a_tampered_registry_entry_fails_verification() {
     std::fs::remove_dir_all(&dir).unwrap();
     std::fs::remove_dir_all(&registry).unwrap();
 }
+
+const MARKOUT_CONFIG: &str = r#"{"version":1,"seed":7,"strategy":"book-top","markouts_ns":[1,2],"probes":[
+{"side":"buy","price":"101.00000000","quantity":"1","fee_bps":5},
+{"side":"sell","price":"98.00000000","quantity":"1","fee_bps":5}
+]}"#;
+
+#[test]
+fn markout_horizons_ride_along_without_disturbing_fills() {
+    let dir = temp_directory("markouts");
+    write_capture(&dir);
+
+    let run = run_benchmark(&dir, MARKOUT_CONFIG).unwrap();
+    assert_eq!(run.fills, 2);
+    // Buy filled at 101, next print 99: adverse about -198.02 bps.
+    // Sell filled at 98 against 101, next print 99: adverse about -102.04.
+    // The 2ns horizon outruns the capture: null, never zero.
+    let report: serde_json::Value = serde_json::from_slice(&run.bytes).unwrap();
+    let probes = report["probes"].as_array().unwrap();
+    assert_eq!(probes.len(), 2);
+    let buy_marks = probes[0]["markouts"]["markouts_bps"].as_array().unwrap();
+    assert_eq!(
+        probes[0]["markouts"]["horizons_ns"],
+        serde_json::json!([1, 2])
+    );
+    assert!(
+        (buy_marks[0].as_f64().unwrap() + 198.0198).abs() < 1e-2,
+        "{buy_marks:?}"
+    );
+    assert!(buy_marks[1].is_null(), "{buy_marks:?}");
+    let sell_marks = probes[1]["markouts"]["markouts_bps"].as_array().unwrap();
+    assert!(
+        (sell_marks[0].as_f64().unwrap() + 102.0408).abs() < 1e-2,
+        "{sell_marks:?}"
+    );
+    assert!(sell_marks[1].is_null(), "{sell_marks:?}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn absent_horizons_mean_byte_identical_v1_reports() {
+    // The compatibility proof: a config without the key and one with an
+    // empty list must produce the exact bytes (and hash) builds before
+    // markouts produced — old registry entries keep verifying.
+    let dir = temp_directory("markout-compat");
+    write_capture(&dir);
+
+    let without_key = run_benchmark(&dir, CONFIG).unwrap();
+    let empty = run_benchmark(
+        &dir,
+        &CONFIG.replace("\"probes\":[", "\"markouts_ns\":[],\"probes\":["),
+    )
+    .unwrap();
+    assert_eq!(without_key.bytes, empty.bytes);
+    assert_eq!(without_key.hash, empty.hash);
+    assert!(!String::from_utf8(empty.bytes).unwrap().contains("markouts"));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn markout_runs_record_and_verify() {
+    use astra_harness::{list_runs, record_run, verify_run};
+
+    let dir = temp_directory("markout-registry");
+    let registry = temp_directory("markout-registry-store");
+    write_capture(&dir);
+
+    let run = run_benchmark(&dir, MARKOUT_CONFIG).unwrap();
+    record_run(&registry, MARKOUT_CONFIG, &run).unwrap();
+    assert!(verify_run(&registry, &run.hash, &dir).unwrap());
+    assert_eq!(list_runs(&registry).unwrap().len(), 1);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&registry).unwrap();
+}

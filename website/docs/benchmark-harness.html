@@ -81,6 +81,11 @@ the command and compare one hash.</p>
 <li>Every probe needs an explicit <code>fee_bps</code> (same rule as <code>exec-v1</code>).</li>
 <li>Unknown JSON fields are refused (fail-closed parsing): a config that
   means something different than intended must error, not run.</li>
+<li>Optional <code>markouts_ns</code> (array of nanosecond horizons, e.g. <code>[1000000000]</code>)
+  attaches a post-fill markout section to every probe: signed bps per
+  horizon, adverse always negative, uncovered horizons <code>null</code>. Absent or
+  empty means no section — and byte-identical reports to before markouts
+  existed, so old registry entries keep verifying.</li>
 </ul>
 <h2 id="report-json-canonical">Report (JSON, canonical)</h2>
 <pre><code class="language-json">{
@@ -104,7 +109,9 @@ the command and compare one hash.</p>
 maps anywhere in the path, no timestamps, no wall-clock reads. The report
 hash is SHA-256 over the exact bytes written (pretty JSON plus one trailing
 newline). Unfilled probes report <code>"result": "unfilled"</code> with a <code>reason</code> field and the
-fill fields absent, not null.</p>
+fill fields absent, not null. Probes in a markout run carry an extra
+<code>"markouts": {"horizons_ns": [...], "markouts_bps": [...]}</code> object;
+unfilled probes carry all-<code>null</code> bps with the reason in <code>outcome</code>.</p>
 <h2 id="rules">Rules</h2>
 <ul>
 <li>The capture is replayed <strong>once</strong>; all probes simulate over the collected
