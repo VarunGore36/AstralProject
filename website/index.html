@@ -72,7 +72,7 @@ stop_reason duration_elapsed</code></pre>
         <dl class="hero-stats reveal">
           <div><dt>Frames verified live</dt><dd>601 <span>of 601 checked</span></dd></div>
           <div><dt>Bootstrap skip count</dt><dd>133 <span>exact match</span></dd></div>
-          <div><dt>Unit tests</dt><dd>217 <span>passing</span></dd></div>
+          <div><dt>Unit tests</dt><dd>243 <span>passing</span></dd></div>
           <div><dt>Profitability claims</dt><dd>0 <span>by design</span></dd></div>
         </dl>
       </div>
@@ -93,6 +93,7 @@ stop_reason duration_elapsed</code></pre>
 <span class="t-dim">$</span> astra-harness run <span class="t-dim">--input ./demo --config ./bench.json --record ./experiments</span>
 verdict     <span class="t-ok">reproduced</span></code></pre>
         </div>
+        <p class="section-sub reveal">No venue access? Skip the capture entirely: the seed corpus verifies offline — run <code>astra-harness verify --registry benchmark-corpus/registry --hash cb050f8f7f0384baa45bd434237da76f0e4b1a76d1fc144e95e9abcea34f78f7 --input benchmark-corpus/capture</code> and it must print <code>verdict reproduced</code>. The loop runs before anything is recorded.</p>
       </div>
     </section>
 
@@ -175,17 +176,17 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
           <article class="card repo reveal">
             <p class="mono-label">crate · astra-normalize</p>
             <h3>Capture to Parquet</h3>
-            <p>Exact-decimal datasets with whole-batch validation, Hive-partitioned, byte-deterministic across runs.</p>
+            <p>Exact-decimal datasets with whole-batch validation, Hive-partitioned, byte-deterministic across runs — and chunk-streamed, so a 200k-frame capture normalizes in 28 MB instead of 256.</p>
           </article>
           <article class="card repo reveal">
             <p class="mono-label">crate · astra-replay</p>
             <h3>Deterministic replay</h3>
-            <p>Event core (book, trade, top-of-book), seeded strategies, and a CLI — same capture in, identical signal hashes out. Spec and repro procedure in <code>docs/</code>, soak operator in <code>ops/</code>.</p>
+            <p>Event core (book, trade, top-of-book), seeded strategies, and a CLI — same capture in, identical signal hashes out. Streams chunk-by-chunk with sequence enforcement, and replays Parquet trees with identical signals to raw. Spec and repro procedure in <code>docs/</code>, soak operator in <code>ops/</code>.</p>
           </article>
           <article class="card repo reveal">
             <p class="mono-label">crate · astra-exec</p>
             <h3>Conservative fills</h3>
-            <p>Limit-maker simulation over trade prints — through-print fills, maker fees, gaps void — plus a probe CLI that runs resting orders over real captures. Calibration and shadow mode open.</p>
+            <p>Limit-maker simulation over trade prints — through-print fills, maker fees, gaps void — plus post-fill markouts per horizon (adverse always negative, gaps report unknown) and a probe CLI that runs resting orders over real captures. Calibration and shadow mode open.</p>
           </article>
           <article class="card repo reveal">
             <p class="mono-label">crate · astra-harness</p>
@@ -194,8 +195,8 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
           </article>
           <article class="card repo reveal">
             <p class="mono-label">crate · astra-python</p>
-            <h3>Python bindings foothold</h3>
-            <p>Exact decimal arithmetic and clock reads for notebooks — embedded-tested, and importable from a plain build. No packaging daemon required.</p>
+            <h3>Python research SDK</h3>
+            <p>Exact decimals, conservative fills, and clock reads — plus the full record → normalize → replay loop from a notebook with built-in strategies. Embedded-tested, shipped as a maturin wheel, CI-verified on install.</p>
           </article>
         </div>
         <p class="section-sub reveal" style="margin-top: 2.2rem">The contracts behind the crates — read these before citing a result.</p>
@@ -237,8 +238,8 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
           </article>
           <article class="card reveal">
             <p class="mono-label">doc · status</p>
-            <h3><a href="docs/status-2026-10-10.html">Project status 2026-10-10 →</a></h3>
-            <p>Numbers, flowcharts, gates, and what ends the OSS — every figure sourced from the repo itself.</p>
+            <h3><a href="docs/status-2026-10-12.html">Project status 2026-10-12 →</a></h3>
+            <p>Numbers, flowcharts, gates, and what ends the OSS — every figure sourced from the repo itself. Supersedes <a href="docs/status-2026-10-10.html">2026-10-10</a>.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label">doc · policy</p>
@@ -248,7 +249,7 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
           <article class="card reveal">
             <p class="mono-label">doc · stream</p>
             <h3><a href="docs/streaming-design.html">Streaming design →</a></h3>
-            <p>Chunk-by-chunk replay and normalization that keeps every determinism guarantee — spec first, code later.</p>
+            <p>Chunk-by-chunk replay and normalization that keeps every determinism guarantee — designed first, then built and measured (256 MB → 28 MB).</p>
           </article>
         </div>
         <div class="oss-cta reveal">
@@ -310,6 +311,26 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
             <p>96 live frames replayed under two seeds: identical signal hashes. Seed-independence was expected — now it is measured.</p>
           </article>
           <article class="card research reveal">
+            <p class="mono-label status-done">Measured · synthetic scale</p>
+            <h3>Every reader streams, every byte accounted</h3>
+            <p>300k synthetic frames replay chunk-by-chunk with identical signal hashes to load-all (141 MB → 12 MB on the quiet strategy); 200k normalize at 28 MB (was 256) with identical file layout. Synthetic inputs, real guarantees.</p>
+          </article>
+          <article class="card research reveal">
+            <p class="mono-label status-done">Verified · fixture equivalence</p>
+            <h3>Parquet replays exactly like raw</h3>
+            <p>A mixed 7-frame capture — diffs, bundle trades, topbook, gap, one unparseable frame — emits byte-identical signal hashes through raw and normalized replay. The null row replays as a counted skip in both.</p>
+          </article>
+          <article class="card research reveal">
+            <p class="mono-label status-done">Seeded · bronze corpus</p>
+            <h3>One reproducing run out of the box</h3>
+            <p><code>benchmark-corpus/</code> holds a 10-frame capture, a config, and a recorded registry run that verifies <code>reproduced</code> immediately — honestly labeled bronze, with tier graduation rules written down.</p>
+          </article>
+          <article class="card research reveal">
+            <p class="mono-label status-done">Enforced · CI gate</p>
+            <h3>Determinism pinned, not promised</h3>
+            <p><code>ops/determinism.sh check</code> runs on every push: normalize-twice byte equality plus pinned replay and tree hashes over an 8-frame fixture. Verified green — and verified red on a doctored index.</p>
+          </article>
+          <article class="card research reveal">
             <p class="mono-label status-next">Procedure defined</p>
             <h3>Cross-machine reproduction, ready to run</h3>
             <p>Same capture bytes plus same commit plus same seed must yield equal verdicts, equal Parquet tree hashes, and equal signal hashes. The steps are written down — awaiting a second machine.</p>
@@ -347,7 +368,7 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
       <div class="wrap">
         <p class="eyebrow reveal">Audit · 2026-10-06</p>
         <h2 id="audit-title" class="reveal">Run to the throttle.</h2>
-        <p class="section-sub reveal">Full suite, lints, panic-surface scan, and a line-by-line review of every production path in the measurement pipeline. Three bugs fixed same-day. Thirteen findings ranked and left open. Full detail in <a href="docs/audit-2026-10-06.html">the audit doc</a>.</p>
+        <p class="section-sub reveal">Full suite, lints, panic-surface scan, and a line-by-line review of every production path in the measurement pipeline. Three bugs fixed same-day. Thirteen findings ranked; twelve closed since, one documented open. Full detail in <a href="docs/audit-2026-10-06.html">the audit doc</a>.</p>
         <div class="grid grid-3">
           <article class="card reveal"><h3>145 tests, all green</h3><p>17 book · 16 normalize · 86 record · 10 replay · 15 types, plus one overflow guard each at three sites. Zero ignored, zero failed.</p></article>
           <article class="card reveal"><h3>Zero clippy warnings</h3><p><code>cargo clippy --workspace --all-targets -- -D warnings</code> passes; <code>cargo fmt --check</code> clean. The lint caught a dead assignment in the auditor's own fix mid-audit.</p></article>
@@ -418,14 +439,24 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
             <h3><code>reconstruct</code> counts connection gaps</h3>
             <p>Markers classified on the walk — connection-type counted, sequence-type left to the book's own break — and undecodable markers abort like everywhere else.</p>
           </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · streaming</p>
+            <h3>Every reader streams, measured</h3>
+            <p>Replay, normalize, reconstruct and compare walk chunks with O(chunk) inputs: 300k frames replay at 12 MB (was 141), 200k normalize at 28 MB (was 256). Same-capture bytes unchanged; cross-chunking equality at read-back level.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · unification</p>
+            <h3>Null rows replay as skips</h3>
+            <p><code>replay_normalized</code> feeds Parquet trees to any strategy with byte-identical signal hashes to raw replay. The policy table's last structural divergence is resolved, not documented.</p>
+          </article>
+          <article class="card reveal">
+            <p class="mono-label status-done">Closed · snapshots</p>
+            <h3>Foreign snapshots fail with guidance</h3>
+            <p>Both <code>--snapshot</code> loaders share one venue-aware refusal: Binance format spelled out, Bybit payloads told no file is needed. No format parsed from memory.</p>
+          </article>
         </div>
         <p class="eyebrow reveal" style="margin-top: 2.2rem">Still open, ranked</p>
         <div class="grid grid-2">
-          <article class="card reveal">
-            <p class="mono-label status-next">Open · 1</p>
-            <h3>Soak-scale memory</h3>
-            <p>Only <code>check</code> streams chunk-by-chunk; replay and normalize load multi-million-frame soaks whole into RAM. Size the judging box — or stream them — before the soak.</p>
-          </article>
           <article class="card reveal">
             <p class="mono-label status-done">Closed · 2</p>
             <h3>Used capture dirs refuse</h3>
@@ -437,19 +468,14 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
             <p>Manifest-gated, connection gaps counted, sequence breaks counted — the full <code>check</code> prelude, minus only the verdict itself.</p>
           </article>
           <article class="card reveal">
-            <p class="mono-label status-next">Open · 5-rest</p>
-            <h3>Behavioral unification</h3>
-            <p>The failure policy is documented in <a href="docs/failure-policy.html">the policy table</a> — same corruption, different outcomes per subcommand. Unifying toward fail-loud stays open.</p>
-          </article>
-          <article class="card reveal">
-            <p class="mono-label status-next">Open · 6–9</p>
-            <h3><a href="docs/audit-2026-10-06.html">Four more in the doc →</a></h3>
-            <p>Binance-only snapshots, normalize idempotency, null-row divergence, tail-hole reading — plus the items verified benign, so nobody re-audits them.</p>
+            <p class="mono-label status-next">Open · 9</p>
+            <h3>Tail holes read off the manifest</h3>
+            <p>The final disconnect ends the capture with no trailing gap marker — correct, since nothing follows, but the soak judge must read the manifest's <code>stop_reason</code>, never the stream. Documented, one item left.</p>
           </article>
           <article class="card reveal">
             <p class="mono-label status-next">Next: evidence</p>
             <h3>Code is the short pole now</h3>
-            <p>The remaining opens need wall-clock time (soak, shadow) or design (streaming, unification) — not more auditing. The VPS run is the next gate.</p>
+            <p>Twelve of thirteen findings closed plus the streaming, unification, and snapshot follow-ups. What remains needs wall-clock time (soak, shadow) or other humans (reproductions) — not more auditing. The VPS run is the next gate.</p>
           </article>
         </div>
       </div>
@@ -478,8 +504,8 @@ verdict     <span class="t-ok">reproduced</span></code></pre>
         <ol class="gates">
           <li class="gate gate-active reveal"><div class="gate-head"><span class="gate-num">01</span><h3>Capture &amp; reconstruct</h3><span class="gate-state">In progress</span></div><p>Lossless recording, verified book reconstruction, offline audit. Judged by a 72-hour soak: <code>ops/soak.sh check</code> reports a per-stream verdict and exits non-zero on any issue — zero unexplained loss required. Latency methodology published; cross-machine procedure defined.</p></li>
           <li class="gate reveal"><div class="gate-head"><span class="gate-num">02</span><h3>Does it work</h3><span class="gate-state">Planned</span></div><p>Shadow mode measures predicted fills against what was actually tradable. Dies if model error exceeds ~10 bps on liquid pairs.</p></li>
-          <li class="gate reveal"><div class="gate-head"><span class="gate-num">03</span><h3>Useful research</h3><span class="gate-state">Planned</span></div><p>One honest published research note. Dies if three months of real use produces nothing substantive.</p></li>
-          <li class="gate reveal"><div class="gate-head"><span class="gate-num">04</span><h3>Do others use it</h3><span class="gate-state">Planned</span></div><p>External users running the recorder, external reproductions of published results. Dies quietly if nobody comes.</p></li>
+          <li class="gate reveal"><div class="gate-head"><span class="gate-num">03</span><h3>Useful research</h3><span class="gate-state">Planned</span></div><p>Three honest early notes published (all negative, all with stated limits). Dies if three months of real use produces nothing substantive — the funding-carry study is the candidate.</p></li>
+          <li class="gate reveal"><div class="gate-head"><span class="gate-num">04</span><h3>Do others use it</h3><span class="gate-state">Planned</span></div><p>A seed corpus reproduces out of the box and the determinism gate runs in CI — the machinery is ready. Dies quietly if nobody comes: 5 users, 2 external reproductions.</p></li>
           <li class="gate reveal"><div class="gate-head"><span class="gate-num">05</span><h3>Beyond</h3><span class="gate-state">Undefined</span></div><p>Further stages are defined from what Gate 4 teaches, not before. The public roadmap ends where the evidence ends.</p></li>
         </ol>
       </div>

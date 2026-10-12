@@ -33,6 +33,7 @@
         <a href="failure-policy.html">Policy</a>
         <a href="benchmark-harness.html">Bench</a>
         <a href="status-2026-10-10.html">Status</a>
+        <a href="status-2026-10-12.html">Status ✦</a>
         <a href="streaming-design.html">Stream</a>
       </nav>
       <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/execution-model.md" target="_blank" rel="noopener">Source .md</a>
@@ -92,6 +93,17 @@ print that caused the fill (or the stream end that expired it), and the full
 assumption header (fee tier, model version <code>exec-v1</code>, data tier, reproduce
 command). Optimistic variants (fill on quote touch) may exist only with an
 explicit <code>UNREALISTIC</code> label in the output itself.</p>
+<h2 id="markouts-adverse-selection-after-the-fill">Markouts (adverse selection after the fill)</h2>
+<p>For every filled order, <code>markout</code> reports what happened next at each
+horizon (<code>--markout 500ms,1s,10s,60s</code> on the probe CLI): the signed basis
+points from the fill price to the first later print at or past the horizon
+mark, negative always meaning adverse (bought before a fall, sold before a
+rise). A horizon no later print covers — or a gap anywhere between the fill
+and its covering print — reports <code>unknown</code>, never a fake zero. Prints past
+a hole describe a market the fill never saw.</p>
+<p>This distribution is the seed of the calibration product: it measures the
+gap between simulation and reality without claiming to close it. Money
+stays <code>Fixed</code>; markout bps are analytics floats by explicit design.</p>
 <h2 id="acceptance">Acceptance</h2>
 <ul>
 <li>Unit tests on synthetic print sequences: through-print fills, touch-without-

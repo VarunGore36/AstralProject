@@ -43,6 +43,8 @@ PAGES = [
      "One capture plus one config into a hashed report."),
     ("status-2026-10-10.md", "Status", "Project status 2026-10-10",
      "Numbers, flowcharts, gates, and what ends the OSS."),
+    ("status-2026-10-12.md", "Status ✦", "Project status 2026-10-12",
+     "After the ten-batch OSS completion: sourced counts, audit closure."),
     ("streaming-design.md", "Stream", "Streaming replay and normalization",
      "Chunk-by-chunk design that keeps determinism."),
 ]

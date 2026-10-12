@@ -61,7 +61,13 @@ every row states its evidence and its limits.
   book-update latency, Parquet normalization with proven byte-determinism,
   a replay engine covering book, trade, and top-of-book events whose
   live hashes are seed-independent across ten repetitions,
-  and a benchmark harness turning captures plus configs into hashed reports.
+  a benchmark harness turning captures plus configs into hashed reports,
+  chunk-streamed replay/normalization/reconstruction/comparison (measured
+  single-digit-MB RSS on 200–300k-frame synthetics), normalized replay
+  proving raw ≡ Parquet signal hashes, post-fill markouts per horizon,
+  a maturin-packaged Python SDK running the full loop, a seeded benchmark
+  corpus with a reproducing registry run, a CI determinism gate over a
+  pinned fixture, and seeded property proofs for fixed-point rounding.
 - **Working on** — the 72-hour soak: operator scripted (`ops/soak.sh`), four
   streams, awaiting a supervised 72h window. Judging is mechanical
   (`ops/soak.sh check`: per-stream verdicts, non-zero exit on any issue).
@@ -108,7 +114,7 @@ every row states its evidence and its limits.
 | Combined-stream fan-out capture (`--with`) | DONE — one connection, per-channel sibling dirs with own manifests, independent tracking, unknown streams counted |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE — full content inlined (`website/docs/*.html` built from `docs/` via `website/build.py`, no external doc links); fluoro neon theme |
 | Normalized event schema v1 (see `docs/`) | DONE — `book_diff`, `trade`, `top_of_book` implemented in `astra-normalize`; `funding`/`liquidation` reserved |
-| Replay engine design v1 (see `docs/`) | DONE — implemented in `astra-replay`; scope now covers `book_diff` + `trade` + `top_of_book` |
+| Replay engine design v1 (see `docs/`) | DONE — implemented in `astra-replay`; scope now covers `book_diff` + `trade` + `top_of_book`, chunk-streamed with `seq` enforcement, plus normalized replay over Parquet |
 | Replay event core (`astra-replay` lib: events, seeded context, hashing) | DONE — `BookDiff`/`Snapshot`/`Trade`/`TopBook` events, gap passthrough, per-type counters |
 | Replay CLI with `book-top` demo strategy | DONE — live-verified, seed-independent hashes; `book-top` tracks the book only, trade/topbook frames counted not signaled |
 | Normalizer `book_diff` to Parquet (`astra-normalize`) | DONE |
@@ -116,7 +122,7 @@ every row states its evidence and its limits.
 | Normalizer `trade` to Parquet (all three venues) | DONE — Binance live-verified; Bybit/Coinbase parser-tested, live-blocked by network |
 | Exchange checksum validation | SUPERSEDED — no connected venue publishes book checksums (verified against Binance spot docs; Bybit and Coinbase publish none either; only Kraken does, and it is not connected). Correctness is proven by independent reference comparison instead |
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
-| Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; latency methodology published; cross-machine procedure defined, proof open |
+| Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` and `trade-tally` strategies and CLI, seed-independent live hashes; ten-replay ritual performed; chunk-streamed with `seq` enforcement; normalized replay proves raw ≡ Parquet signals; latency methodology published; cross-machine procedure defined, proof open |
 | Cost and execution model | PARTIALLY IMPLEMENTED — `exec-v1` lib + `astra-exec` probe CLI done (replay trade prints → fills with cited print, 19 unit + 3 integration tests); markouts measured per horizon with gap-voided unknowns; calibration and shadow mode open |
 | Benchmark harness (`astra-harness`) | DONE — one replay pass (book-top + trade collection composed) + N probe simulations → canonical JSON + SHA-256 report hash; fail-closed config, tampered captures refused |
 
@@ -145,7 +151,7 @@ flowchart LR
 | Raw immutable frames | PARTIALLY IMPLEMENTED |
 | Compressed chunks | DONE |
 | Normalised Parquet | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, `top_of_book` (`astra-normalize`); remaining channels counted and skipped |
-| Deterministic replay | PARTIALLY IMPLEMENTED — event core, strategies, and CLI exist with live-verified determinism; cross-machine proof open |
+| Deterministic replay | PARTIALLY IMPLEMENTED — chunk-streamed event core, both strategies, normalized replay, and CLI exist with live-verified determinism; cross-machine proof open |
 | Research results | NOT IMPLEMENTED |
 
 Partially implemented means three venues with uneven depth. Every mapped
@@ -188,8 +194,8 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-book` | Order-book state: level updates, top of book, invariants |
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` + `trade` + `top_of_book`) |
-| `crates/astra-replay` | Deterministic replay: event core (`book_diff` + `trade` + `top_of_book`), `book-top` strategy, CLI |
-| `crates/astra-exec` | Conservative fills: limit-maker simulation over trade prints, required fee tier, plus a probe CLI (`exec-v1`) |
+| `crates/astra-replay` | Deterministic replay: event core (`book_diff` + `trade` + `top_of_book`), `book-top` and `trade-tally` strategies, CLI, chunk-streamed reading with `seq` enforcement, plus `replay_normalized` over Parquet trees |
+| `crates/astra-exec` | Conservative fills: limit-maker simulation over trade prints, required fee tier, post-fill markouts per horizon, plus a probe CLI (`exec-v1`) |
 | `crates/astra-harness` | Benchmark harness (`bench-v1`): one replay pass + N probes → canonical hashed report, plus a local registry (`run --record`, `list`, `verify` with reproduction verdicts) |
 | `crates/astra-python` | Python research SDK (`astra` module): exact decimals, conservative fills, clock reads, plus `normalize_capture` / `replay_capture` / `replay_tables` running the full loop from Python with built-in strategies; embedded-tested, maturin wheel CI-verified |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables, implemented for `book_diff`, `trade`, `top_of_book` |
@@ -200,10 +206,13 @@ capture format, the book, and the audit tooling can never drift apart.
 | `docs/benchmark-harness.md` | The v1 harness spec: config, canonical report, determinism rules (implemented in `astra-harness`) |
 | `docs/audit-2026-10-06.md` | Full-pipeline audit: method, 3 fixes, 13 ranked open findings, claim spot-check |
 | `research/` | Published research notes, built to `website/research/` by `website/build.py` |
-| `docs/failure-policy.md` | What each subcommand does with the same corruption (read off the code; unification open) |
-| `docs/status-2026-10-10.md` | Project status with charts, flowcharts, gates, and the OSS endgame (figures sourced from the repo) |
+| `docs/failure-policy.md` | What each subcommand does with the same corruption (read off the code; null-row vs skip unified via normalized replay) |
+| `docs/status-2026-10-10.md` | Project status with charts, flowcharts, gates, and the OSS endgame (figures sourced from the repo; superseded by `status-2026-10-12.md`) |
+| `docs/status-2026-10-12.md` | Project status after the ten-batch OSS completion push: sourced counts, streaming measurements, audit closure, what remains evidence-only |
 | `docs/streaming-design.md` | Chunk-streamed replay/normalization that preserves determinism (both stream since 2026-10-11 with measured RSS; acceptance record inside) |
 | `ops/soak.sh` | The 72-hour soak operator: `start`, `status`, mechanical `check` verdict |
+| `ops/determinism.sh` | The determinism gate: pinned fixture capture, normalize-twice byte check, pinned replay hash and parquet tree hash (`check` in CI, `pin` for intentional changes) |
+| `benchmark-corpus/` | Seed benchmark corpus (bronze tier, honestly labeled): capture + config + recorded registry run verifying `reproduced` out of the box |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
 ## Data model
@@ -647,6 +656,14 @@ flowchart TD
   compression happens later on roll, there is no fsync, and the Binance live
   book is partial without a REST bootstrap at startup (the Bybit one is
   complete via in-band snapshots).
+- Every reader streams chunk-by-chunk, but two accumulations remain by
+  design: per-event-signal strategies hold their own output (signals are the
+  hashed result), and normalized replay sorts event descriptors before
+  feeding the strategy. The soak box still needs headroom for chatty
+  strategies; the scale path is raw replay with quiet strategies.
+- The seed benchmark corpus is bronze tier — a synthetic assembly of
+  real-format frames for pipeline verification, not research data. Its README
+  says so, and tier graduation rules are written down, not assumed.
 
 ## Verification record
 
@@ -754,8 +771,8 @@ which equality broke).
 | Decisive full-depth comparison | complete REST bootstrap + same-connection streams: 150 post-snapshot checks at depth 10, 149 exact matches, 1 dust-quantity transient (same prices, 5th-decimal quantities — a sub-millisecond race between the venue's publishers) | VERIFIED |
 | Exchange checksum validation | none — verdict, not a gap: Binance publishes no book checksums on any spot stream (verified against the official stream docs); Bybit and Coinbase publish none either. Only Kraken does among reachable majors, and it is not connected. The correctness claim this row was meant to carry is proven instead by reference comparison (rows above) | SUPERSEDED |
 | Full-pipeline audit 2026-10-06 | 145 tests green, clippy clean, every production `unwrap` inspected; 3 bugs fixed (u64::MAX overflow, soak backoff, manifest trust), 13 open findings ranked in `docs/audit-2026-10-06.md` | REPORTED |
-| Exec-v1 unit acceptance | 9 unit tests: through-print fills both sides, near-miss expiry, wrong-side prints, gap void, empty stream, exact fees to the raw unit, explicit zero tier, rejected non-positive orders; replay wiring and live probes open | UNIT-TESTED, needs live proof |
-| Exec probe wiring | 2 integration tests over real-format captures on disk: fill cites its through-print (`print_seq`), gaps void, expiry; probe CLI demoed on empty and malformed inputs (clean errors, correct exits); live-venue probes open | WIRED, needs live proof |
+| Exec-v1 unit acceptance | 19 unit tests: through-print fills both sides, near-miss expiry, wrong-side prints, gap void, empty stream, exact fees to the raw unit, explicit zero tier, rejected non-positive orders, markout signs/gaps/unknowns, strict horizon parsing, golden markout section; replay wiring and live probes open | UNIT-TESTED, needs live proof |
+| Exec probe wiring | 3 integration tests over real-format captures on disk: fill cites its through-print (`print_seq`), gaps void, expiry, plus markouts measured on nanosecond horizons; probe CLI demoed on empty and malformed inputs (clean errors, correct exits); live-venue probes open | WIRED, needs live proof |
 | Live-book error counting | negative-quantity diff counted as `errors` while `updates` counts successes; capture output prints both | UNIT-TESTED |
 | Check output golden format | `check` rendering moved into the lib with line-by-line golden tests, so the `verdict` line `soak.sh` parses cannot drift silently; CLI output verified byte-identical after the move | PINNED |
 | CLI output contracts pinned | `capture` (`frames` line parsed by `soak.sh status`), `replay` (`signal_hash`), and `exec` reports all render through golden-tested lib functions; byte-identical output verified live after each move | PINNED |

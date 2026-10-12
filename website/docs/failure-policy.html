@@ -33,6 +33,7 @@
         <a href="failure-policy.html">Policy</a>
         <a href="benchmark-harness.html">Bench</a>
         <a href="status-2026-10-10.html">Status</a>
+        <a href="status-2026-10-12.html">Status ✦</a>
         <a href="streaming-design.html">Stream</a>
       </nav>
       <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/docs/failure-policy.md" target="_blank" rel="noopener">Source .md</a>
@@ -116,7 +117,7 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <td>stored verbatim, unchecked</td>
 <td>skip (<code>unchecked</code>)</td>
 <td>skip (<code>frames_without_a_book</code>)</td>
-<td>skip, uncounted</td>
+<td>counted (<code>events_unparseable</code>)</td>
 <td><strong>zero rows</strong> (no events, nothing to placeholder)</td>
 <td>skip (<code>skipped_unparseable</code>)</td>
 </tr>
@@ -136,7 +137,7 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <td><strong>counted</strong> (<code>seq_breaks</code>)</td>
 <td><strong>not checked</strong></td>
 <td>duplicate <code>seq</code> rejected</td>
-<td><strong>not checked</strong> (trusts order)</td>
+<td>abort (<code>Malformed</code>)</td>
 </tr>
 <tr>
 <td>Duplicate update spans</td>
@@ -152,7 +153,7 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <td>n/a</td>
 <td>finding via count mismatch</td>
 <td>abort via count mismatch</td>
-<td>proceeds on whatever frames exist</td>
+<td>abort (<code>ManifestMismatch</code>)</td>
 <td>abort via count mismatch</td>
 <td>abort via count mismatch</td>
 </tr>
@@ -179,11 +180,15 @@ null-field Parquet row · <strong>passthrough</strong> = surfaced to the caller 
 <h2 id="rules-for-changing-this-table">Rules for changing this table</h2>
 <ol>
 <li>Unify toward fail-loud for corruption (abort or unhealthy), never toward
-   silent skipping. The remaining quiet corner is <code>compare</code> silently
-   skipping unparseable venue frames without even counting them — every
-   other reader counts what it skips.</li>
-<li>The null-row vs skip divergence (normalize keeps, replay skips) stands
-   until normalized-replay exists to need one answer.</li>
+   silent skipping. Every reader now counts or aborts on every row above;
+   the remaining structural divergence is rule 2, which needs an engine,
+   not a patch.</li>
+<li>The null-row vs skip divergence is resolved, not just documented:
+   <code>replay_normalized</code> replays null rows as <code>skipped_unparseable</code>, and raw
+   ≡ normalized signal hashes are proven by test (<code>raw_and_normalized_
+   replay_emit_identical_signals</code>). The Parquet null row stays (seq
+   accounting without invented content), the replay skip stays (no invented
+   events) — one answer, both sides kept.</li>
 <li>Any behavior change here updates this table, the subcommand's golden
    tests, and the README verification record together.</li>
 </ol>
