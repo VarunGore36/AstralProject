@@ -51,7 +51,7 @@ pub fn compare(
     }
 
     let bootstrap = match snapshot {
-        Some(path) => Some(load_snapshot(path)?),
+        Some(path) => Some(crate::reconstruct::load_snapshot_file(path)?),
         None => None,
     };
 
@@ -173,17 +173,6 @@ fn format_levels(levels: &[astra_book::Level]) -> String {
         .map(|level| format!("{}x{}", level.price, level.quantity))
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn load_snapshot(path: &Path) -> Result<BookSnapshot, RecordError> {
-    let payload = std::fs::read(path)?;
-
-    feed::book_snapshot(
-        astra_types::Venue::Binance,
-        astra_types::Channel::BookSnapshot,
-        &payload,
-    )
-    .ok_or_else(|| RecordError::Snapshot(path.display().to_string()))
 }
 
 fn load_references(reference: &Path) -> Result<(Vec<BookSnapshot>, u64), RecordError> {

@@ -69,7 +69,11 @@ struct CaptureArgs {
 struct ReconstructArgs {
     #[arg(long, value_name = "DIR")]
     input: PathBuf,
-    #[arg(long, value_name = "FILE")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Binance REST depth snapshot (lastUpdateId/bids/asks); Bybit needs none (in-band)"
+    )]
     snapshot: Option<PathBuf>,
 }
 
@@ -81,7 +85,11 @@ struct VerifyArgs {
     reference: PathBuf,
     #[arg(long, value_name = "LEVELS", default_value_t = 10)]
     levels: usize,
-    #[arg(long, value_name = "FILE")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Binance REST depth snapshot (lastUpdateId/bids/asks); Bybit needs none (in-band)"
+    )]
     snapshot: Option<PathBuf>,
     #[arg(long)]
     verbose: bool,

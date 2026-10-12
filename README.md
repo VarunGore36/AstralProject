@@ -320,6 +320,10 @@ cargo run -p astra-record -- reconstruct --input ./capture --snapshot ./snapshot
 ```
 
 The snapshot is a venue depth snapshot (`lastUpdateId` plus bids and asks).
+A foreign file is refused with the accepted format spelled out; a
+Bybit-looking payload is additionally told Bybit needs no file at all (no
+Bybit file format is parsed — none is citable, and a remembered format
+would repeat the `open_interest` incident).
 Events ending at or before the snapshot id are skipped, the first overlapping
 event applies, and every later event must continue the update-id sequence or
 the book is marked broken. A broken book rejects all further events until a

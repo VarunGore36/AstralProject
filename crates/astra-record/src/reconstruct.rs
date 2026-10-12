@@ -45,7 +45,7 @@ pub fn reconstruct(
     let mut expected_seq = 0u64;
 
     if let Some(path) = snapshot {
-        let loaded = load_snapshot(path)?;
+        let loaded = load_snapshot_file(path)?;
         reconstructor.load_snapshot(&loaded)?;
         summary.snapshot_loaded = Some(loaded.last_update_id);
     }
@@ -134,15 +134,39 @@ fn apply(
     }
 }
 
-fn load_snapshot(path: &Path) -> Result<BookSnapshot, RecordError> {
+/// Load a `--snapshot` bootstrap file: a Binance REST depth snapshot
+/// (`{"lastUpdateId", "bids", "asks"}`). Anything else is refused with the
+/// format spelled out — in particular, a Bybit payload is named as such and
+/// pointed at in-band bootstrapping, instead of failing as a confusing
+/// opaque error (audit finding 6). No Bybit file format is parsed: Bybit
+/// snapshots arrive inside the stream itself, so a file is never needed,
+/// and a format remembered rather than read would repeat the `open_interest`
+/// incident.
+pub(crate) fn load_snapshot_file(path: &Path) -> Result<BookSnapshot, RecordError> {
     let payload = std::fs::read(path)?;
 
-    feed::book_snapshot(
+    if let Some(snapshot) = feed::book_snapshot(
         astra_types::Venue::Binance,
         astra_types::Channel::BookSnapshot,
         &payload,
-    )
-    .ok_or_else(|| RecordError::Snapshot(path.display().to_string()))
+    ) {
+        return Ok(snapshot);
+    }
+
+    let text = String::from_utf8_lossy(&payload);
+    let looks_like_bybit =
+        text.contains("retCode") || text.contains("orderbook") || text.contains("publicTrade");
+    Err(RecordError::Snapshot(if looks_like_bybit {
+        format!(
+            "{}: not a Binance REST book snapshot, and this looks like a Bybit payload — Bybit captures bootstrap from in-band snapshots, so no --snapshot file is needed",
+            path.display()
+        )
+    } else {
+        format!(
+            "{}: not a Binance REST book snapshot (expected JSON with lastUpdateId, bids, asks); Bybit captures bootstrap from in-band snapshots, so no --snapshot file is needed",
+            path.display()
+        )
+    }))
 }
 
 /// Render the reconstruction summary exactly as the CLI prints it.
@@ -789,6 +813,57 @@ mod tests {
 
         let result = reconstruct(&output, Some(&snapshot_path));
         assert!(matches!(result, Err(RecordError::Snapshot(_))));
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn a_bybit_payload_fails_with_bybit_guidance_not_silence() {
+        // Finding 6: no Bybit file format is parsed (none is citable), but a
+        // holder of one must be told so — and told no file is needed at all.
+        let output = temp_directory("bybit-snapshot-file");
+        write_capture(&output, vec![real_frame()]);
+
+        let snapshot_path = output.join("snapshot.json");
+        write_snapshot(
+            &snapshot_path,
+            r#"{"retCode":0,"result":{"s":"BTCUSDT","b":[["82994.8","0.4"]],"a":[["82994.9","1.1"]],"u":500}}"#,
+        );
+
+        let result = reconstruct(&output, Some(&snapshot_path));
+        match result {
+            Err(RecordError::Snapshot(message)) => {
+                assert!(message.contains("Bybit"), "no venue guidance: {message}");
+                assert!(message.contains("in-band"), "no method guidance: {message}");
+            }
+            _ => panic!("expected a guided Snapshot refusal"),
+        }
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn a_foreign_snapshot_names_the_accepted_format() {
+        let output = temp_directory("foreign-snapshot-file");
+        write_capture(&output, vec![real_frame()]);
+
+        let snapshot_path = output.join("snapshot.json");
+        write_snapshot(&snapshot_path, r#"{"depth":5,"prices":[1,2]}"#);
+
+        let result = reconstruct(&output, Some(&snapshot_path));
+        match result {
+            Err(RecordError::Snapshot(message)) => {
+                assert!(
+                    message.contains("lastUpdateId"),
+                    "no format guidance: {message}"
+                );
+                assert!(
+                    !message.contains("looks like a Bybit payload"),
+                    "false venue accusation: {message}"
+                );
+            }
+            _ => panic!("expected a guided Snapshot refusal"),
+        }
 
         std::fs::remove_dir_all(&output).unwrap();
     }
