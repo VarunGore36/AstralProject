@@ -120,18 +120,24 @@ def build() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     ROUT = ROOT / "website" / "research"
     ROUT.mkdir(parents=True, exist_ok=True)
-    navlinks = "\n".join(
+    doc_nav = "\n".join(
         f'        <a href="{name[:-3]}.html">{label}</a>' for name, label, _, _ in PAGES
+    )
+    research_nav = "\n".join(
+        f'        <a href="../docs/{name[:-3]}.html">{label}</a>' for name, label, _, _ in PAGES
     )
     for name, _, title, desc in PAGES:
         text = (SRC / name).read_text()
+        # Status docs reference charts repo-root-relative (../website/assets);
+        # built pages sit one level deeper, so rewrite to the site-relative path.
+        text = text.replace("../website/assets/", "../assets/")
         body = markdown.markdown(
             text, extensions=["fenced_code", "tables", "toc", "sane_lists"]
         )
         page = TEMPLATE.format(
             title=title,
             desc=desc,
-            navlinks=navlinks,
+            navlinks=doc_nav,
             body=body,
             src=name,
             srcdir="docs",
@@ -148,7 +154,7 @@ def build() -> None:
         page = TEMPLATE.format(
             title=title,
             desc=desc,
-            navlinks=navlinks,
+            navlinks=research_nav,
             body=body,
             src=name,
             srcdir="research",
