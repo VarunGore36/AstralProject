@@ -124,12 +124,12 @@ columns for everything and make every query pay for every channel's shape.</p>
 <tr>
 <td><code>bids</code></td>
 <td>list of (price, qty) fixed decimal</td>
-<td>levels touched by this event</td>
+<td>levels touched by this event; null on synthetic gap rows and unparseable frames (same skip rule)</td>
 </tr>
 <tr>
 <td><code>asks</code></td>
 <td>list of (price, qty) fixed decimal</td>
-<td>levels touched by this event</td>
+<td>levels touched by this event; null on synthetic gap rows and unparseable frames (same skip rule)</td>
 </tr>
 <tr>
 <td><code>capture_id</code></td>
@@ -176,7 +176,10 @@ columns for everything and make every query pay for every channel's shape.</p>
 <h3 id="trade"><code>trade</code></h3>
 <p>One row per venue trade print. Aggregated messages (Bybit <code>publicTrade</code>
 bundles) expand to one row per trade, distinguished by <code>print_index</code> —
-decided because a bundle is a transport artifact, not a market event.</p>
+decided because a bundle is a transport artifact, not a market event.
+An empty bundle (zero prints) yields zero rows: no events, nothing to
+placeholder — unlike an unparseable frame, which keeps a null row so <code>seq</code>
+accounting survives.</p>
 <table>
 <thead>
 <tr>
@@ -214,7 +217,7 @@ decided because a bundle is a transport artifact, not a market event.</p>
 <tr>
 <td><code>price</code>, <code>quantity</code></td>
 <td>fixed decimal, nullable</td>
-<td>null only on synthetic gap rows</td>
+<td>null on synthetic gap rows and on unparseable frames (null rows replay as counted skips, never as events — see <code>replay_normalized</code>)</td>
 </tr>
 <tr>
 <td><code>side</code></td>
@@ -262,12 +265,12 @@ decided because a bundle is a transport artifact, not a market event.</p>
 <tr>
 <td><code>best_bid</code>, <code>best_bid_qty</code></td>
 <td>fixed decimal, nullable</td>
-<td>null only on synthetic gap rows</td>
+<td>null on synthetic gap rows and unparseable frames (same skip rule)</td>
 </tr>
 <tr>
 <td><code>best_ask</code>, <code>best_ask_qty</code></td>
 <td>fixed decimal, nullable</td>
-<td>null only on synthetic gap rows</td>
+<td>null on synthetic gap rows and unparseable frames (same skip rule)</td>
 </tr>
 <tr>
 <td><code>capture_id</code>, <code>seq</code>, <code>flags</code>, <code>synthetic</code></td>
@@ -310,7 +313,10 @@ defined from the first real payloads, not from documentation.</p>
 </code></pre>
 <p>Hive-style partitions (<code>venue</code>, <code>market_type</code>, <code>symbol</code>, <code>channel</code>, <code>date</code>).
 Symbols use <code>_</code> instead of <code>/</code> because <code>/</code> is a path separator. One writer per
-partition per day; files are immutable once closed, mirroring chunk semantics.</p>
+partition per day; files are immutable once closed, mirroring chunk semantics.
+Since streaming, each touched chunk appends one row group per partition file —
+so the same records under different chunkings share file layout and logical
+rows but package row groups differently (read-back equality, proven by test).</p>
 <p>Rerunning into the same output directory does <strong>not</strong> overwrite: the writer
 numbers the next <code>part-NNNNN.parquet</code> after existing files, so a rerun
 duplicates every row. Idempotency comes from fresh output directories, not
@@ -330,9 +336,12 @@ schema version recorded in file metadata, equal to the writer's version   [enfor
 <li>The tolerance on timestamp validation (clock skew between venue and local).</li>
 <li>Whether <code>ts_ready</code> belongs in the table or in sidecar metadata.</li>
 <li>Compression codec and row-group sizing (measure on real data first).</li>
-<li>How normalization itself is made deterministic (sorting, float-free
-  conversions, no wall-clock reads) — required before the determinism claim,
-  designed with the replay engine, not here.</li>
+</ul>
+<h2 id="decided-since-v1-was-open-now-closed">Decided since v1 (was open, now closed)</h2>
+<ul>
+<li>Deterministic normalization: byte-identical files for the same capture
+  twice (CI-enforced), read-back equality across chunkings, no wall-clock
+  reads, fixed-point only. Designed with the replay engine, as required.</li>
 </ul>
 <h2 id="what-this-document-is-not">What this document is not</h2>
 <p>Not a migration plan, not a query engine, not a promise of Parquet files by

@@ -45,8 +45,8 @@ One row per venue book-update event.
 | `ts_ready` | int64 ns | when the normalized row was produced — **not captured yet** |
 | `first_update_id` | uint64, nullable | Binance `U`; Bybit `u` |
 | `last_update_id` | uint64, nullable | Binance `u`; Bybit `u` |
-| `bids` | list of (price, qty) fixed decimal | levels touched by this event |
-| `asks` | list of (price, qty) fixed decimal | levels touched by this event |
+| `bids` | list of (price, qty) fixed decimal | levels touched by this event; null on synthetic gap rows and unparseable frames (same skip rule) |
+| `asks` | list of (price, qty) fixed decimal | levels touched by this event; null on synthetic gap rows and unparseable frames (same skip rule) |
 | `capture_id` | string | source capture |
 | `seq` | uint64 | position in the source capture |
 | `flags` | uint32 | capture quality bits |
@@ -61,6 +61,9 @@ One row per venue book-update event.
 One row per venue trade print. Aggregated messages (Bybit `publicTrade`
 bundles) expand to one row per trade, distinguished by `print_index` —
 decided because a bundle is a transport artifact, not a market event.
+An empty bundle (zero prints) yields zero rows: no events, nothing to
+placeholder — unlike an unparseable frame, which keeps a null row so `seq`
+accounting survives.
 
 | Column | Type | Meaning |
 | --- | --- | --- |
@@ -69,7 +72,7 @@ decided because a bundle is a transport artifact, not a market event.
 | `ts_socket` | int64 ns | local read time |
 | `ts_ready` | int64 ns | **not captured yet** |
 | `trade_id` | string, nullable | venue trade id as sent (numbers stringified, strings preserved) |
-| `price`, `quantity` | fixed decimal, nullable | null only on synthetic gap rows |
+| `price`, `quantity` | fixed decimal, nullable | null on synthetic gap rows and on unparseable frames (null rows replay as counted skips, never as events — see `replay_normalized`) |
 | `side` | string, nullable | canonical `Buy`/`Sell`; derived from the maker flag on Binance, passed through on Bybit, case-normalized on Coinbase |
 | `print_index` | uint32 | 0-based position within the source message; always 0 except expanded bundles |
 | `capture_id`, `seq`, `flags`, `synthetic` | | as above |
@@ -83,8 +86,8 @@ One row per top-of-book update (Binance `bookTicker`, Coinbase `ticker`).
 | --- | --- | --- |
 | `venue`, `market_type`, `symbol` | strings | as above |
 | `ts_exchange`, `ts_socket`, `ts_ready` | int64 ns | `ts_ready` **not captured yet** |
-| `best_bid`, `best_bid_qty` | fixed decimal, nullable | null only on synthetic gap rows |
-| `best_ask`, `best_ask_qty` | fixed decimal, nullable | null only on synthetic gap rows |
+| `best_bid`, `best_bid_qty` | fixed decimal, nullable | null on synthetic gap rows and unparseable frames (same skip rule) |
+| `best_ask`, `best_ask_qty` | fixed decimal, nullable | null on synthetic gap rows and unparseable frames (same skip rule) |
 | `capture_id`, `seq`, `flags`, `synthetic` | | as above |
 | `gap_reason`, `gap_attempts`, `gap_started`, `gap_ended` | nullable | as in `book_diff`; gap markers arrive per channel |
 
@@ -123,6 +126,9 @@ dataset/
 Hive-style partitions (`venue`, `market_type`, `symbol`, `channel`, `date`).
 Symbols use `_` instead of `/` because `/` is a path separator. One writer per
 partition per day; files are immutable once closed, mirroring chunk semantics.
+Since streaming, each touched chunk appends one row group per partition file —
+so the same records under different chunkings share file layout and logical
+rows but package row groups differently (read-back equality, proven by test).
 
 Rerunning into the same output directory does **not** overwrite: the writer
 numbers the next `part-NNNNN.parquet` after existing files, so a rerun
@@ -149,9 +155,12 @@ A batch that fails validation is rejected whole, never partially accepted.
 - The tolerance on timestamp validation (clock skew between venue and local).
 - Whether `ts_ready` belongs in the table or in sidecar metadata.
 - Compression codec and row-group sizing (measure on real data first).
-- How normalization itself is made deterministic (sorting, float-free
-  conversions, no wall-clock reads) — required before the determinism claim,
-  designed with the replay engine, not here.
+
+## Decided since v1 (was open, now closed)
+
+- Deterministic normalization: byte-identical files for the same capture
+  twice (CI-enforced), read-back equality across chunkings, no wall-clock
+  reads, fixed-point only. Designed with the replay engine, as required.
 
 ## What this document is not
 

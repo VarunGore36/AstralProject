@@ -1,6 +1,8 @@
 # Replay engine design (v1)
 
-Status: **implemented** (`astra-replay`: event core, `book-top` strategy, CLI).
+Status: **implemented** (`astra-replay`: event core, `book-top` and
+`trade-tally` strategies, CLI, chunk-streamed reading with `seq`
+enforcement, plus `replay_normalized` over Parquet trees).
 This document is the contract the engine satisfies — written before the engine
 so the engine can be judged against it. The v1 scope below has since grown to
 cover `trade` and `top_of_book` alongside `book_diff`; the rules are unchanged.
@@ -17,10 +19,11 @@ models no costs. Execution simulation is a separate engine that consumes
 replay output. Conflating the two is how look-ahead bias and fill fantasy
 enter through the back door.
 
-## Input: raw captures, not Parquet
+## Input: raw captures first, Parquet second
 
-Replay reads raw capture directories (chunks + index + manifest), not
-normalized datasets. Reasons:
+Replay reads raw capture directories (chunks + index + manifest), streamed
+chunk-by-chunk with `seq` continuity enforced across chunk boundaries —
+not normalized datasets. Reasons:
 
 - The raw capture is the source of truth; replaying a derived view cannot
   validate the derivation.
@@ -29,6 +32,13 @@ normalized datasets. Reasons:
   normalization, which requires raw input.
 - Gap markers, flags, and unparseable frames exist in raw form. A replay that
   cannot surface them is a cleaner fiction than the capture, not a replay.
+
+Since v1, `replay_normalized` also replays Parquet trees — as an
+equivalence prover, not a validator. It exists to prove one answer to the
+null-row question (null rows replay as counted skips, with byte-identical
+signal hashes to raw replay), and its scale limits are stated on the
+function: O(events) memory, while raw replay streams. The three reasons
+above are why raw stays the scale path and the derivation stays checkable.
 
 ## Event model (v1 scope)
 
@@ -60,19 +70,25 @@ unseeded randomness breaks determinism by construction, and the engine cannot
 detect it — so the strategy interface must make the deterministic path the
 easy one (seeded RNG handle provided, no clock provided).
 
-## Strategy interface (sketch, not API)
+## Strategy interface
 
 ```rust
 trait Strategy {
     fn on_book_diff(&mut self, event: &BookDiffEvent, ctx: &mut Context);
+    fn on_snapshot(&mut self, event: &SnapshotEvent, ctx: &mut Context);
+    fn on_trade(&mut self, event: &TradeEvent, ctx: &mut Context);
+    fn on_top_of_book(&mut self, event: &TopBookEvent, ctx: &mut Context);
     fn on_gap(&mut self, marker: &GapMarker, ctx: &mut Context);
+    fn on_end(&mut self, frames: u64, ctx: &mut Context);
 }
 ```
 
-`Context` carries virtual time, the seeded RNG, and a signal sink. Signals
-are opaque bytes plus a schema tag — the engine hashes them per run, and equal
-hashes across runs is the determinism test. The engine never interprets a
-signal; interpretation is the backtester's job.
+`on_trade` defaults to ignoring (book-only strategies), as does
+`on_top_of_book`; the rest are required. `TradeEvent` carries `print_index`
+for bundle expansion; `Context` carries virtual time, the seeded RNG, and a
+signal sink. Signals are opaque bytes plus a schema tag — the engine hashes
+them per run, and equal hashes across runs is the determinism test. The
+engine never interprets a signal; interpretation is the backtester's job.
 
 ## Gap semantics
 
@@ -95,22 +111,32 @@ gaps measures a market that never existed.
 ## Acceptance criteria
 
 - Ten replays of one captured day → ten identical signal hashes (Gate 1 bar).
+  Performed on a 151-frame live capture; the CI determinism gate
+  (`ops/determinism.sh`) now enforces the same property on a pinned fixture
+  on every push.
 - Same capture + same code on a second machine → identical hashes
   (cross-machine bar; needs a second machine to execute, mechanism defined here).
 - A replay with an injected gap produces the documented broken-book behavior,
-  not a silent continuation.
+  not a silent continuation (covered by strategy tests; gaps break the book
+  until a snapshot heals it).
 
 ## Open questions (undecided, deliberately)
 
 - As-fast-as-possible only for v1, or a paced mode for debugging?
 - Multi-instrument merge semantics (v2 ordering rule is sketched above but
   untested).
-- `trade` / `top_of_book` event shapes are implemented (`TradeEvent` with
-  `print_index`, `TopBookEvent`); multi-instrument merge semantics (v2 ordering
-  rule sketched above) remain untested.
-- Where signals are recorded and hashed (experiment hashing is future work).
-- Whether the engine reuses `record`/`replay` CLI surface or gets its own
-  binary (`astra-replay` vs `astra-record replay`).
+
+## Decided since v1 (was open, now closed)
+
+- `trade` / `top_of_book` event shapes: implemented (`TradeEvent` with
+  `print_index`, `TopBookEvent`).
+- CLI surface: the engine ships as its own binary (`astra-replay`), not a
+  `astra-record` subcommand.
+- Signal recording and hashing: the harness registry records reports plus
+  configs with reproduction verdicts (`verify`).
+- Scale: raw replay streams chunk-by-chunk (O(chunk) inputs, `seq`
+  enforced); normalized replay exists as the equivalence prover with
+  stated O(events) limits.
 
 ## What this document is not
 
