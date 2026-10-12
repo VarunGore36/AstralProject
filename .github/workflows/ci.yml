@@ -27,3 +27,39 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace
+
+  python:
+    name: maturin wheel + import smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel
+        run: |
+          pip install maturin
+          maturin build --manifest-path crates/astra-python/Cargo.toml --out dist
+
+      - name: Import smoke test
+        run: |
+          pip install "$(ls dist/astra-*.whl | head -n 1)"
+          python - <<'EOF'
+          import astra, json
+
+          # Exact decimals: 0.1 + 0.2 is 0.3 here, not 0.30000000000000004.
+          assert astra.parse_fixed("1.5") == "1.50000000"
+          assert astra.fixed_add("0.1", "0.2") == "0.30000000"
+
+          # Conservative fills through the same exec-v1 core as the CLI.
+          outcome = json.loads(astra.simulate_fill("buy", "100", "1", 10, [(1, "99", "2")]))
+          assert outcome["result"] == "filled", outcome
+
+          # Clock reads exist and advance.
+          assert astra.timestamp_now_ns() > 0
+          print("astra import smoke: ok")
+          EOF

@@ -806,7 +806,7 @@ which equality broke).
 | Tampered registry entries fail closed | rewriting a stored config changes the re-run, so verification compares unequal and returns false instead of trusting the directory name | TESTED |
 | Soak dir dated and overridable | `ops/soak.sh` defaults to `data/soak-<date>` (the stale 2026-09-29 default is gone) with `SOAK_DIR` override, documented in the runbook | OPERATIONAL |
 | Soak guards against double-start | `start` refuses already-running streams and chunk-holding dirs instead of launching doomed duplicates; `status` reports never-started dirs distinctly (both paths demoed) | OPERATIONAL |
-| Python bindings foothold | `astra` module with exact decimal arithmetic and clock reads, tested through the embedded interpreter on Python 3.14; `import astra` packaging (maturin) stays open | TESTED |
+| Python bindings foothold | `astra` module with exact decimal arithmetic and clock reads, tested through the embedded interpreter on Python 3.14; maturin wheel builds, installs, and passes the import smoke test (CI-verified) | PACKAGED |
 | Fills from Python | `simulate_fill` answers print math over JSON-able tuples (gaps explicitly out of scope — use the probe for gap-bearing streams); live import demoed | TESTED |
 | `import astra` without maturin | cdylib+rlib crate types keep tests green while `cargo build` produces an importable module (verified: parse/mul/clock/div0 live in Python 3.14) | IMPORTABLE |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |

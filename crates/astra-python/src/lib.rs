@@ -5,9 +5,11 @@
 //! reads. DataFrames stay on the Python side (Polars/DuckDB over the Parquet
 //! this project writes); this crate keeps money math out of floats.
 //!
-//! Tested through the embedded interpreter (`cargo test`). Importable
-//! packaging (maturin) is a later distribution push, stated openly —
-//! `import astra` does not work yet.
+//! Tested through the embedded interpreter (`cargo test`) and shipped as
+//! a real wheel (`maturin build` in `crates/astra-python`, CI-verified
+//! `pip install` plus import smoke test). `import astra` works from the
+//! installed wheel; local development can also use the plain `cargo build`
+//! `astra.so` without maturin.
 
 use astra_types::{Fixed, Timestamp};
 use pyo3::exceptions::PyValueError;

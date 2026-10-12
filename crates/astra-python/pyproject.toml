@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "astra"
+# Kept in sync with crates/astra-python/Cargo.toml (workspace version)
+# by hand until the workspace adopts a single release process.
+version = "0.1.0"
+description = "Reproducible measurement layer for crypto markets: exact decimals, clocks, and conservative fills"
+readme = "../../README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+keywords = ["crypto", "trading", "research", "reproducibility"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Office/Business :: Financial",
+]
+
+[project.urls]
+Homepage = "https://github.com/VarunGore36/AstralProject"
+
+[tool.maturin]
+bindings = "pyo3"
+# crates/astra-python builds lib name `astra`, so the wheel imports as
+# `import astra` with no Python-side stub package to drift.

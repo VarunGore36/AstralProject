@@ -4,3 +4,7 @@
 .directory
 /capture
 /data
+# maturin / Python build artifacts (wheels are built in CI, never committed)
+/dist
+*.whl
+*.so
