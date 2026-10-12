@@ -1,0 +1,33 @@
+{
+  "harness_version": "bench-v1",
+  "exec_version": "exec-v1",
+  "capture_id": "seed-bronze-v1",
+  "frames": 10,
+  "seed": 7,
+  "strategy": "book-top",
+  "signal_hash": "6fcaf38b35a62504005f135b6c8c29d0af55a2982a6ef2613cdab686df07d13d",
+  "probes": [
+    {
+      "side": "buy",
+      "price": "86000.00000000",
+      "quantity": "0.01000000",
+      "fee_bps": 10,
+      "result": "filled",
+      "fill_price": "86000.00000000",
+      "fee": "0.86000000",
+      "slippage": "0.00000000",
+      "print_seq": 8
+    },
+    {
+      "side": "sell",
+      "price": "85900.00000000",
+      "quantity": "0.01000000",
+      "fee_bps": 10,
+      "result": "filled",
+      "fill_price": "85900.00000000",
+      "fee": "0.85900000",
+      "slippage": "0.00000000",
+      "print_seq": 8
+    }
+  ]
+}

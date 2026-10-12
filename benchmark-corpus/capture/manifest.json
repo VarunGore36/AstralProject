@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "capture_id": "seed-bronze-v1",
+  "created_at": 0,
+  "instrument": {
+    "venue": "binance",
+    "market_type": "spot",
+    "symbol": "BTC/USDT"
+  },
+  "channel": "book_diff",
+  "frames_written": 10,
+  "stop_reason": null
+}

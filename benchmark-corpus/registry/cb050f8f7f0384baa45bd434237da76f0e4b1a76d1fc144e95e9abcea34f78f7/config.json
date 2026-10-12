@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "seed": 7,
+  "strategy": "book-top",
+  "probes": [
+    {"side": "buy", "price": "86000", "quantity": "0.01", "fee_bps": 10},
+    {"side": "sell", "price": "85900", "quantity": "0.01", "fee_bps": 10}
+  ]
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "chunk-000000.zst",
+    "first_seq": 0,
+    "last_seq": 3,
+    "records": 4,
+    "bytes": 427,
+    "sha256": "575c925a9bf0e14c96be07199619b9efd49fe1661531fea80b0f1732b5c76c1d"
+  },
+  {
+    "name": "chunk-000001.zst",
+    "first_seq": 4,
+    "last_seq": 7,
+    "records": 4,
+    "bytes": 383,
+    "sha256": "42f8ce33e2793b45242c6eb4acd5d663b0d27bd9481cc0ca28cb0121fae20ba8"
+  },
+  {
+    "name": "chunk-000002.zst",
+    "first_seq": 8,
+    "last_seq": 9,
+    "records": 2,
+    "bytes": 196,
+    "sha256": "a6662df408e7a497720cef796be382a60cbf171c64a5d3cc753fec6c332a136e"
+  }
+]
