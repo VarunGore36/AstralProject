@@ -157,3 +157,43 @@ fn a_probe_honours_gaps_and_expiry() {
     );
     std::fs::remove_dir_all(&quiet).unwrap();
 }
+
+#[test]
+fn a_probe_markout_measures_what_happened_next() {
+    use astra_exec::{MarkoutOutcome, probe_markout};
+
+    // Trade prints land 1ns apart (ts_socket = base + seq), so nanosecond
+    // horizons walk the real ts clock, not a synthetic one.
+    let dir = temp_directory("markout");
+    write_capture(
+        &dir,
+        vec![
+            binance_trade(0, 1, "100.00000000", false),
+            binance_trade(1, 2, "99.00000000", true),
+            binance_trade(2, 3, "101.00000000", false),
+        ],
+    );
+
+    let report = probe_markout(&dir, 7, &buy("100.00000000"), 5, &[1, 2]).unwrap();
+    assert_eq!(report.trades, 3);
+    let MarkoutOutcome::Filled {
+        print_seq,
+        markouts_bps,
+        horizons_ns,
+        ..
+    } = report.outcome
+    else {
+        panic!("expected a fill, got {:?}", report.outcome);
+    };
+    assert_eq!(print_seq, 0);
+    assert_eq!(horizons_ns, vec![1, 2]);
+    assert_eq!(markouts_bps.len(), 2);
+    // Buy filled at 100, next print 99: adverse, about -100 bps.
+    let adverse = markouts_bps[0].expect("1ns horizon is covered");
+    assert!((adverse + 100.0).abs() < 1e-6, "{adverse}");
+    // Two nanos out the print is 101: benign, about +100 bps.
+    let benign = markouts_bps[1].expect("2ns horizon is covered");
+    assert!((benign - 100.0).abs() < 1e-6, "{benign}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

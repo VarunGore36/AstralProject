@@ -290,6 +290,282 @@ pub fn probe_capture(
     })
 }
 
+/// A trade print with its socket timestamp, for post-fill measurement.
+/// `ts_socket_ns` is transport time (when this machine saw the print), the
+/// same clock the recorder stamps on every record.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TimedPrint {
+    pub seq: u64,
+    pub price: Fixed,
+    pub quantity: Fixed,
+    pub ts_socket_ns: i64,
+}
+
+/// Timed replay output in stream order. Gaps void live orders in `simulate`
+/// and void pending markout horizons here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TimedEvent {
+    Print(TimedPrint),
+    Gap,
+}
+
+/// A would-have-filled order with what happened next: per-horizon markouts
+/// in basis points, signed so that negative always means adverse selection
+/// (the market moved against the fill). `None` means the horizon is
+/// unmeasurable — no later print covers it, or a gap crossed the window.
+/// Floats are analytics, never money: the fill price and fee stay `Fixed`.
+#[derive(Clone, PartialEq, Debug, Serialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
+pub enum MarkoutOutcome {
+    Filled {
+        fill_price: Fixed,
+        fee: Fixed,
+        slippage: Fixed,
+        print_seq: u64,
+        fill_ts_ns: i64,
+        horizons_ns: Vec<u64>,
+        markouts_bps: Vec<Option<f64>>,
+    },
+    Unfilled {
+        reason: UnfilledReason,
+    },
+}
+
+/// Measure adverse selection after a conservative fill.
+///
+/// The fill itself follows the exact `simulate` rules (through-print only,
+/// gaps void, corrupt prints skipped) by delegating to it; only filled
+/// orders get markouts. `horizons_ns` are nanosecond offsets from the fill
+/// print's socket time; each horizon reads the first later print at or past
+/// its mark. A gap anywhere between the fill and a horizon's covering print
+/// voids that horizon — prints past a hole describe a market the fill never
+/// saw.
+pub fn markout(
+    order: &LimitOrder,
+    fee_bps: u32,
+    events: &[TimedEvent],
+    horizons_ns: &[u64],
+) -> Result<MarkoutOutcome, ExecError> {
+    let untimed: Vec<MarketEvent> = events
+        .iter()
+        .map(|event| match event {
+            TimedEvent::Print(print) => MarketEvent::Print(Print {
+                seq: print.seq,
+                price: print.price,
+                quantity: print.quantity,
+            }),
+            TimedEvent::Gap => MarketEvent::Gap,
+        })
+        .collect();
+    let fill = match simulate(order, fee_bps, &untimed)? {
+        OrderOutcome::Filled {
+            fill_price,
+            fee,
+            slippage,
+            print_seq,
+        } => (fill_price, fee, slippage, print_seq),
+        OrderOutcome::Unfilled { reason } => return Ok(MarkoutOutcome::Unfilled { reason }),
+    };
+    let (fill_price, fee, slippage, print_seq) = fill;
+
+    let fill_index = events
+        .iter()
+        .position(|event| matches!(event, TimedEvent::Print(print) if print.seq == print_seq))
+        .expect("fill print comes from this stream");
+    let fill_ts = match &events[fill_index] {
+        TimedEvent::Print(print) => print.ts_socket_ns,
+        TimedEvent::Gap => unreachable!("fill print comes from this stream"),
+    };
+
+    let mut covered: Vec<Option<f64>> = vec![None; horizons_ns.len()];
+    let mut pending: Vec<usize> = (0..horizons_ns.len()).collect();
+    for event in &events[fill_index + 1..] {
+        if pending.is_empty() {
+            break;
+        }
+        match event {
+            // Prints past a hole are a new regime: every still-open horizon
+            // is unmeasurable, not zero.
+            TimedEvent::Gap => break,
+            TimedEvent::Print(print) => {
+                if print.price.raw() <= 0 || print.quantity.raw() <= 0 {
+                    continue;
+                }
+                pending.retain(|&position| {
+                    let mark = fill_ts.saturating_add_unsigned(horizons_ns[position]);
+                    if print.ts_socket_ns >= mark {
+                        covered[position] = Some(markout_bps(order.side, fill_price, print.price));
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
+        }
+    }
+
+    Ok(MarkoutOutcome::Filled {
+        fill_price,
+        fee,
+        slippage,
+        print_seq,
+        fill_ts_ns: fill_ts,
+        horizons_ns: horizons_ns.to_vec(),
+        markouts_bps: covered,
+    })
+}
+
+/// Signed basis points from the fill to a later print: negative is adverse
+/// for the filled side in both directions (bought before a fall, or sold
+/// before a rise).
+fn markout_bps(side: Side, fill_price: Fixed, later_price: Fixed) -> f64 {
+    let fill = fill_price.to_f64_for_analytics();
+    let later = later_price.to_f64_for_analytics();
+    let movement = match side {
+        Side::Buy => later - fill,
+        Side::Sell => fill - later,
+    };
+    movement / fill * 10_000.0
+}
+
+/// Collects the timestamped trade-print stream (plus gaps) out of a replay.
+#[derive(Default)]
+pub struct TimedCollector {
+    pub events: Vec<TimedEvent>,
+    pub trades: u64,
+    pub gaps: u64,
+}
+
+impl astra_replay::Strategy for TimedCollector {
+    fn on_book_diff(
+        &mut self,
+        _event: &astra_replay::BookDiffEvent,
+        _ctx: &mut astra_replay::Context,
+    ) {
+    }
+    fn on_snapshot(
+        &mut self,
+        _event: &astra_replay::SnapshotEvent,
+        _ctx: &mut astra_replay::Context,
+    ) {
+    }
+    fn on_trade(&mut self, event: &astra_replay::TradeEvent, _ctx: &mut astra_replay::Context) {
+        self.events.push(TimedEvent::Print(TimedPrint {
+            seq: event.seq,
+            price: event.trade.price,
+            quantity: event.trade.quantity,
+            ts_socket_ns: event.ts_socket.unix_nanos(),
+        }));
+        self.trades += 1;
+    }
+    fn on_top_of_book(
+        &mut self,
+        _event: &astra_replay::TopBookEvent,
+        _ctx: &mut astra_replay::Context,
+    ) {
+    }
+    fn on_gap(&mut self, _marker: &astra_types::GapMarker, _ctx: &mut astra_replay::Context) {
+        self.events.push(TimedEvent::Gap);
+        self.gaps += 1;
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct MarkoutReport {
+    pub trades: u64,
+    pub gaps: u64,
+    pub outcome: MarkoutOutcome,
+}
+
+/// Replay a capture's trade prints through one resting order and measure
+/// what happened next at each horizon. Same evidence rules as the probe;
+/// horizons in nanoseconds (parse `1s`/`500ms` style flags at the CLI).
+pub fn probe_markout(
+    input: &Path,
+    seed: u64,
+    order: &LimitOrder,
+    fee_bps: u32,
+    horizons_ns: &[u64],
+) -> Result<MarkoutReport, ProbeError> {
+    let mut collector = TimedCollector::default();
+    astra_replay::replay(input, seed, &mut collector)?;
+    Ok(MarkoutReport {
+        trades: collector.trades,
+        gaps: collector.gaps,
+        outcome: markout(order, fee_bps, &collector.events, horizons_ns)?,
+    })
+}
+
+/// Parse `500ms,1s,10s,60s` style horizons into nanoseconds. Rejected
+/// loudly: a silently rounded horizon would corrupt every markout it labels.
+/// A bare number means seconds.
+pub fn parse_horizons(spec: &str) -> Result<Vec<u64>, String> {
+    const NS_PER_MS: u64 = 1_000_000;
+    const NS_PER_S: u64 = 1_000_000_000;
+    const NS_PER_M: u64 = 60 * NS_PER_S;
+    const NS_PER_H: u64 = 3_600 * NS_PER_S;
+
+    let mut horizons = Vec::new();
+    for part in spec.split(',') {
+        let part = part.trim();
+        let (number, unit) = if let Some(number) = part.strip_suffix("ms") {
+            (number, NS_PER_MS)
+        } else if let Some(number) = part.strip_suffix('s') {
+            (number, NS_PER_S)
+        } else if let Some(number) = part.strip_suffix('m') {
+            (number, NS_PER_M)
+        } else if let Some(number) = part.strip_suffix('h') {
+            (number, NS_PER_H)
+        } else {
+            (part, NS_PER_S)
+        };
+        let amount: u64 = number
+            .trim()
+            .parse()
+            .map_err(|_| format!("bad horizon {part:?}: want like 500ms,1s,10s"))?;
+        if amount == 0 {
+            return Err(format!("bad horizon {part:?}: must be positive"));
+        }
+        horizons.push(
+            amount
+                .checked_mul(unit)
+                .ok_or_else(|| format!("bad horizon {part:?}: overflows nanoseconds"))?,
+        );
+    }
+    if horizons.is_empty() {
+        return Err("bad horizons: empty list".to_owned());
+    }
+    Ok(horizons)
+}
+
+/// Render the markout section exactly as the CLI prints it when `--markout`
+/// is passed. Golden-tested beside the probe report; the default probe
+/// output is byte-identical with or without this existing.
+pub fn format_markout_report(report: &MarkoutReport, horizons_ns: &[u64]) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    match &report.outcome {
+        MarkoutOutcome::Filled { markouts_bps, .. } => {
+            for (horizon, bps) in horizons_ns.iter().zip(markouts_bps.iter()) {
+                match bps {
+                    Some(value) => {
+                        let _ = writeln!(out, "markout_{horizon}ns {value:.2}");
+                    }
+                    None => {
+                        let _ = writeln!(out, "markout_{horizon}ns unknown");
+                    }
+                }
+            }
+        }
+        MarkoutOutcome::Unfilled { .. } => {
+            let _ = writeln!(out, "markout     no-fill-no-markout");
+        }
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -591,5 +867,150 @@ mod tests {
             text.contains("result      unfilled (voided-by-gap)"),
             "{text}"
         );
+    }
+
+    const T0: i64 = 1_700_000_000_000_000_000;
+    const SECOND: u64 = 1_000_000_000;
+
+    fn timed(seq: u64, px: &str, at_ns: i64) -> TimedEvent {
+        TimedEvent::Print(TimedPrint {
+            seq,
+            price: px.parse().unwrap(),
+            quantity: price("1"),
+            ts_socket_ns: at_ns,
+        })
+    }
+
+    fn filled_markouts(events: &[TimedEvent], horizons: &[u64]) -> Vec<Option<f64>> {
+        match markout(&buy_at("100"), 5, events, horizons).unwrap() {
+            MarkoutOutcome::Filled { markouts_bps, .. } => markouts_bps,
+            MarkoutOutcome::Unfilled { reason } => panic!("expected a fill, got {reason:?}"),
+        }
+    }
+
+    /// Floats are analytics: compare within a tight epsilon, never exactly.
+    fn assert_bps(actual: Vec<Option<f64>>, expected: Vec<Option<f64>>) {
+        assert_eq!(actual.len(), expected.len(), "{actual:?} vs {expected:?}");
+        for (got, want) in actual.into_iter().zip(expected) {
+            match (got, want) {
+                (Some(got), Some(want)) => {
+                    assert!((got - want).abs() < 1e-6, "{got} vs {want}");
+                }
+                (None, None) => {}
+                _ => panic!("{got:?} vs {want:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn markouts_sign_adverse_selection_negative() {
+        // Buy filled at 100: a fall to 99 is -100 bps adverse, a rise to
+        // 101 is +100 bps benign. The sign carries the finding, not the leg.
+        let events = vec![
+            timed(0, "100", T0),
+            timed(1, "99", T0 + SECOND as i64),
+            timed(2, "101", T0 + 2 * SECOND as i64),
+        ];
+        assert_bps(
+            filled_markouts(&events, &[SECOND, 2 * SECOND]),
+            vec![Some(-100.0), Some(100.0)],
+        );
+    }
+
+    #[test]
+    fn sells_mirror_the_sign() {
+        let events = vec![timed(0, "100", T0), timed(1, "101", T0 + SECOND as i64)];
+        match markout(&sell_at("100"), 5, &events, &[SECOND]).unwrap() {
+            MarkoutOutcome::Filled { markouts_bps, .. } => {
+                assert_bps(markouts_bps, vec![Some(-100.0)]);
+            }
+            MarkoutOutcome::Unfilled { reason } => panic!("expected a fill, got {reason:?}"),
+        }
+    }
+
+    #[test]
+    fn gaps_and_missing_coverage_are_unknown_not_zero() {
+        // A gap between fill and horizon voids it; a horizon no print
+        // reaches stays unknown. Both are None — never a fake 0.00.
+        let gapped = vec![
+            timed(0, "100", T0),
+            TimedEvent::Gap,
+            timed(2, "50", T0 + 10 * SECOND as i64),
+        ];
+        assert_bps(filled_markouts(&gapped, &[SECOND]), vec![None]);
+
+        let short = vec![timed(0, "100", T0)];
+        assert_bps(filled_markouts(&short, &[SECOND]), vec![None]);
+    }
+
+    #[test]
+    fn corrupt_cover_prints_are_skipped_like_in_fills() {
+        let events = vec![
+            timed(0, "100", T0),
+            timed(1, "0", T0 + SECOND as i64),
+            timed(2, "99", T0 + 2 * SECOND as i64),
+        ];
+        assert_bps(filled_markouts(&events, &[SECOND]), vec![Some(-100.0)]);
+    }
+
+    #[test]
+    fn unfilled_orders_carry_their_reason_into_markouts() {
+        let events = vec![timed(0, "101", T0)];
+        assert!(matches!(
+            markout(&buy_at("100"), 5, &events, &[SECOND]).unwrap(),
+            MarkoutOutcome::Unfilled {
+                reason: UnfilledReason::NoThroughPrint
+            }
+        ));
+    }
+
+    #[test]
+    fn horizons_parse_strictly_or_not_at_all() {
+        assert_eq!(
+            parse_horizons("500ms,1s,10s").unwrap(),
+            vec![500_000_000, 1_000_000_000, 10_000_000_000]
+        );
+        assert_eq!(parse_horizons("60").unwrap(), vec![60_000_000_000]);
+        assert_eq!(parse_horizons("2m").unwrap(), vec![120_000_000_000]);
+        assert_eq!(parse_horizons("1h").unwrap(), vec![3_600_000_000_000]);
+        assert!(parse_horizons("0s").is_err());
+        assert!(parse_horizons("").is_err());
+        assert!(parse_horizons("soon").is_err());
+        assert!(parse_horizons("1x").is_err());
+        assert!(parse_horizons("18446744073709551615h").is_err());
+    }
+
+    #[test]
+    fn the_markout_report_format_is_pinned_line_by_line() {
+        let filled = MarkoutReport {
+            trades: 3,
+            gaps: 0,
+            outcome: MarkoutOutcome::Filled {
+                fill_price: price("100"),
+                fee: price("0.05"),
+                slippage: Fixed::ZERO,
+                print_seq: 0,
+                fill_ts_ns: T0,
+                horizons_ns: vec![SECOND, 2 * SECOND],
+                markouts_bps: vec![Some(-100.0), None],
+            },
+        };
+        let text = format_markout_report(&filled, &[SECOND, 2 * SECOND]);
+        for line in [
+            "markout_1000000000ns -100.00",
+            "markout_2000000000ns unknown",
+        ] {
+            assert!(text.contains(line), "missing line: {line}\n{text}");
+        }
+
+        let unfilled = MarkoutReport {
+            trades: 0,
+            gaps: 0,
+            outcome: MarkoutOutcome::Unfilled {
+                reason: UnfilledReason::NoThroughPrint,
+            },
+        };
+        let text = format_markout_report(&unfilled, &[SECOND]);
+        assert!(text.contains("markout     no-fill-no-markout"), "{text}");
     }
 }

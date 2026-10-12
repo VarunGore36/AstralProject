@@ -117,7 +117,7 @@ every row states its evidence and its limits.
 | Exchange checksum validation | SUPERSEDED — no connected venue publishes book checksums (verified against Binance spot docs; Bybit and Coinbase publish none either; only Kraken does, and it is not connected). Correctness is proven by independent reference comparison instead |
 | Normalised Parquet datasets | PARTIALLY IMPLEMENTED — `book_diff`, `trade`, and `top_of_book` normalize to Hive-partitioned Parquet; remaining channels counted and skipped |
 | Deterministic replay | PARTIALLY IMPLEMENTED — event core covers `book_diff` + `trade` + `top_of_book` with `book-top` strategy and CLI, seed-independent live hashes; ten-replay ritual performed; latency methodology published; cross-machine procedure defined, proof open |
-| Cost and execution model | PARTIALLY IMPLEMENTED — `exec-v1` lib + `astra-exec` probe CLI done (replay trade prints → fills with cited print, 9 unit + 2 integration tests); calibration and shadow mode open |
+| Cost and execution model | PARTIALLY IMPLEMENTED — `exec-v1` lib + `astra-exec` probe CLI done (replay trade prints → fills with cited print, 19 unit + 3 integration tests); markouts measured per horizon with gap-voided unknowns; calibration and shadow mode open |
 | Benchmark harness (`astra-harness`) | DONE — one replay pass (book-top + trade collection composed) + N probe simulations → canonical JSON + SHA-256 report hash; fail-closed config, tampered captures refused |
 
 Nothing above is a stub dressed up as finished. The gaps are the roadmap.
@@ -813,6 +813,7 @@ which equality broke).
 | Python bindings foothold | `astra` module with exact decimal arithmetic and clock reads, tested through the embedded interpreter on Python 3.14; maturin wheel builds, installs, and passes the import smoke test (CI-verified) | PACKAGED |
 | Fills from Python | `simulate_fill` answers print math over JSON-able tuples (gaps explicitly out of scope — use the probe for gap-bearing streams); live import demoed | TESTED |
 | Full loop from Python | `normalize_capture` → `replay_capture`/`replay_tables` dicts (records, rows, report incl. `signal_hash`); raw ≡ normalized hashes proven through the bindings too; unknown strategies raise `ValueError` | TESTED |
+| Post-fill markouts | `markout`/`probe_markout` + `--markout` horizons report signed bps per horizon (adverse always negative; gaps and uncovered horizons `unknown`); strict horizon parser, golden markout section, default probe output unchanged | TESTED |
 | `import astra` without maturin | cdylib+rlib crate types keep tests green while `cargo build` produces an importable module (verified: parse/mul/clock/div0 live in Python 3.14) | IMPORTABLE |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |

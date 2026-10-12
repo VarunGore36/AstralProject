@@ -55,6 +55,20 @@ assumption header (fee tier, model version `exec-v1`, data tier, reproduce
 command). Optimistic variants (fill on quote touch) may exist only with an
 explicit `UNREALISTIC` label in the output itself.
 
+## Markouts (adverse selection after the fill)
+
+For every filled order, `markout` reports what happened next at each
+horizon (`--markout 500ms,1s,10s,60s` on the probe CLI): the signed basis
+points from the fill price to the first later print at or past the horizon
+mark, negative always meaning adverse (bought before a fall, sold before a
+rise). A horizon no later print covers — or a gap anywhere between the fill
+and its covering print — reports `unknown`, never a fake zero. Prints past
+a hole describe a market the fill never saw.
+
+This distribution is the seed of the calibration product: it measures the
+gap between simulation and reality without claiming to close it. Money
+stays `Fixed`; markout bps are analytics floats by explicit design.
+
 ## Acceptance
 
 - Unit tests on synthetic print sequences: through-print fills, touch-without-

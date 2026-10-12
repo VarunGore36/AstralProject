@@ -25,6 +25,11 @@ struct Cli {
     /// identically — the flag exists to say so explicitly, not by default.
     #[arg(long, value_name = "SEED", default_value_t = 7)]
     seed: u64,
+    /// Post-fill markout horizons, comma-separated (`500ms,1s,10s,60s`).
+    /// Absent means no markout section; the probe output is byte-identical
+    /// either way.
+    #[arg(long, value_name = "HORIZONS")]
+    markout: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -89,6 +94,17 @@ fn run(cli: Cli) -> Result<(), String> {
         "{}",
         astra_exec::format_probe_report(&cli.input, side, &order, cli.fee_bps, &report)
     );
+
+    if let Some(horizons) = cli.markout.as_deref() {
+        let horizons_ns = astra_exec::parse_horizons(horizons)?;
+        let markout =
+            astra_exec::probe_markout(&cli.input, cli.seed, &order, cli.fee_bps, &horizons_ns)
+                .map_err(|error| error.to_string())?;
+        print!(
+            "{}",
+            astra_exec::format_markout_report(&markout, &horizons_ns)
+        );
+    }
 
     Ok(())
 }
