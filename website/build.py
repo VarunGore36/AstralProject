@@ -21,6 +21,8 @@ RESEARCH = [
      "Median print $8; top 1% carries 46% of volume."),
     ("003-bursts-and-milliseconds.md", "Note 003", "Bursts and milliseconds",
      "529 prints in the busiest second; 73% share a millisecond."),
+    ("004-funding-carry.md", "Note 004", "BTC funding carry, one window",
+     "+$523.85 on $20k in 90 days; fees 3.6% of funding."),
 ]
 
 # (filename, nav label, page title, description)

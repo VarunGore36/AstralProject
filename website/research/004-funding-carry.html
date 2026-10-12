@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BTC funding carry, one window — Astral Project</title>
+  <meta name="description" content="+$523.85 on $20k in 90 days; fees 3.6% of funding." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="normalized-schema.html">Schema</a>
+        <a href="replay-design.html">Replay</a>
+        <a href="cross-machine-repro.html">Repro</a>
+        <a href="soak-runbook.html">Soak</a>
+        <a href="execution-model.html">Fills</a>
+        <a href="audit-2026-10-06.html">Audit</a>
+        <a href="failure-policy.html">Policy</a>
+        <a href="benchmark-harness.html">Bench</a>
+        <a href="status-2026-10-10.html">Status</a>
+        <a href="status-2026-10-12.html">Status ✦</a>
+        <a href="streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/004-funding-carry.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-004-btc-funding-carry-survived-its-costs-once-on-one-window">Research note 004: BTC funding carry survived its costs — once, on one window</h1>
+<p>Date: 2026-10-12 · Status: <strong>single 90-day window, hourly bars, stated
+assumptions.</strong> Companion to notes 001–003. A positive result with leashed
+claims: what follows is what one window says, not what a strategy earns.</p>
+<h2 id="question">Question</h2>
+<p>Can a simple delta-neutral BTC funding trade — long spot, short perp,
+collecting funding — survive realistic fees and basis drift? The strategy
+documents nominate this as research target #1 (data-cheap, maker-heavy,
+honest at small size). This note runs the smallest honest version: buy and
+hold both legs for one quarter, no timing, no leverage.</p>
+<h2 id="dataset">Dataset</h2>
+<ul>
+<li>Binance public archive (<code>data.binance.vision</code>), three slices pinned by
+  SHA-256 in <code>research/scripts/carry_004.py</code>, which downloads, verifies,
+  and analyzes in one command (stdlib only):</li>
+<li><code>futures/um/monthly/fundingRate/BTCUSDT</code> 2024-01..03 (273 payments)</li>
+<li><code>spot/monthly/klines/BTCUSDT/1h</code> 2024-01..03 (2,184 hourly bars)</li>
+<li><code>futures/um/monthly/klines/BTCUSDT/1h</code> 2024-01..03 (2,184 hourly bars,
+    hour-aligned with spot: 0 mismatched hours checked in analysis)</li>
+<li>Not Astra-captured data: this predates the recorder and arrives without
+  capture provenance, so it is analyzed as-is and labeled bronze. Nothing
+  here touches the venue WebSocket path.</li>
+</ul>
+<h2 id="assumptions-all-of-them-up-front">Assumptions (all of them, up front)</h2>
+<table>
+<thead>
+<tr>
+<th>Assumption</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Legs</td>
+<td>long $10,000 BTC spot + short $10,000 BTC perp notional</td>
+</tr>
+<tr>
+<td>Capital</td>
+<td>$20,000 unlevered (both legs fully backed)</td>
+</tr>
+<tr>
+<td>Entry / exit</td>
+<td>first / last hourly close of the window, filled in full</td>
+</tr>
+<tr>
+<td>Fees</td>
+<td>5 bps taker per fill × 4 fills = $20.00 total</td>
+</tr>
+<tr>
+<td>Borrow</td>
+<td>none needed (long spot, short perp; no margin position)</td>
+</tr>
+<tr>
+<td>Funding credit</td>
+<td>each 8h payment × $10k notional, sign-correct for the short</td>
+</tr>
+<tr>
+<td>Slippage beyond fees</td>
+<td>0 (hourly closes, $10k size — a stated simplification)</td>
+</tr>
+<tr>
+<td>Liquidation</td>
+<td>impossible unlevered; stated, not modeled</td>
+</tr>
+</tbody>
+</table>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Measure</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Window</td>
+<td>2024-01-01 → 2024-03-31, 273 funding payments</td>
+</tr>
+<tr>
+<td>Mean funding rate</td>
+<td>2.04 bps per 8h payment</td>
+</tr>
+<tr>
+<td>Funding received, by month</td>
+<td>Jan $111.92 · Feb $130.80 · Mar $314.02</td>
+</tr>
+<tr>
+<td>Funding received, total</td>
+<td>$556.74</td>
+</tr>
+<tr>
+<td>Entry / exit fees</td>
+<td>$20.00 (3.6% of funding)</td>
+</tr>
+<tr>
+<td>Basis (perp − spot), entry → exit</td>
+<td>$28.27 → $82.99 (premium widened)</td>
+</tr>
+<tr>
+<td>Basis drift PnL</td>
+<td>−$12.88 (widening hurts long-spot/short-perp)</td>
+</tr>
+<tr>
+<td>Net, 90 days on $20,000</td>
+<td><strong>+$523.85 (+2.62%)</strong></td>
+</tr>
+<tr>
+<td>Daily Sharpe (analytic floats)</td>
+<td>20.1 — descriptive only, see limits</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reading">Reading</h2>
+<p>Three facts, none of them a strategy. First, funding did the work and
+fees barely mattered at this size: $20 of costs against $557 of carry is
+a 28-to-1 ratio, the opposite of the short-horizon fee death in notes
+001–003. Carry lives where turnover dies. Second, the basis worked against
+the position the whole way — the premium nearly tripled — and the trade
+still cleared by an order of magnitude, because funding dwarfed drift in
+this window. A window where the premium compresses instead would read very
+differently, and the analysis prices exactly that: every dollar of basis
+widening is −$0.24 at this size. Third, the Sharpe is real arithmetic and
+almost meaningless as a statistic: 90 days of smooth funding in a bull
+quarter produce a smooth equity curve by construction. It describes this
+window; it predicts nothing.</p>
+<p>What would strengthen or overturn this: the same computation on a
+negative-funding regime (a quarter where shorts pay, not collect); entry
+timing by basis percentile instead of calendar; borrow-inclusive variants
+for the inverse position; execution at top-of-book rather than closes;
+and — the honest version of this question — the full loop: record spot
+and perp live, normalize, replay the fills, and compare predicted carry
+against collected carry.</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">python3 research/scripts/carry_004.py --data-dir /tmp/carry004
+</code></pre>
+<p>The script pins nine archive SHA-256 hashes and refuses to run on any
+other bytes — including the one transcription slip caught during writing,
+which is exactly the failure mode the pinning exists for.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/004-funding-carry.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
