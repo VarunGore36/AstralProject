@@ -28,6 +28,17 @@ jobs:
       - name: Tests
         run: cargo test --workspace
 
+  determinism:
+    name: determinism gate (pinned fixture)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check pinned determinism
+        run: ops/determinism.sh check
+
   python:
     name: maturin wheel + import smoke
     runs-on: ubuntu-latest

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "capture_id": "determinism-gate",
+  "created_at": 0,
+  "instrument": {
+    "venue": "binance",
+    "market_type": "spot",
+    "symbol": "BTC/USDT"
+  },
+  "channel": "book_diff",
+  "frames_written": 8,
+  "stop_reason": null
+}
