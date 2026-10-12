@@ -1,0 +1,53 @@
+{
+  "harness_version": "bench-v1",
+  "exec_version": "exec-v1",
+  "capture_id": "seed-bronze-v1",
+  "frames": 10,
+  "seed": 99,
+  "strategy": "trade-tally",
+  "signal_hash": "fd9146d10079d100a7cda5babc0eb3335f3c5e2a95bc1322a30bf1f2776490fd",
+  "probes": [
+    {
+      "side": "buy",
+      "price": "86000.00000000",
+      "quantity": "0.01000000",
+      "fee_bps": 10,
+      "result": "filled",
+      "fill_price": "86000.00000000",
+      "fee": "0.86000000",
+      "slippage": "0.00000000",
+      "print_seq": 8,
+      "markouts": {
+        "horizons_ns": [
+          1,
+          2
+        ],
+        "markouts_bps": [
+          11.627906976744185,
+          null
+        ]
+      }
+    },
+    {
+      "side": "sell",
+      "price": "85900.00000000",
+      "quantity": "0.01000000",
+      "fee_bps": 10,
+      "result": "filled",
+      "fill_price": "85900.00000000",
+      "fee": "0.85900000",
+      "slippage": "0.00000000",
+      "print_seq": 8,
+      "markouts": {
+        "horizons_ns": [
+          1,
+          2
+        ],
+        "markouts_bps": [
+          -23.28288707799767,
+          null
+        ]
+      }
+    }
+  ]
+}

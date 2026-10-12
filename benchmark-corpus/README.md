@@ -32,11 +32,15 @@ cargo run -q -p astra-harness -- run \
   --output /tmp/seed-report.json
 ```
 
-## What the seed run contains
+## What the seed runs contain
 
 `config-v1.json`: seed 7, `book-top` strategy, two probes (buy 0.01 @
 86000, sell 0.01 @ 85900, 10 bps maker). Both fill on the first trade
 print — the seed demonstrates fills citing through-prints, not edge.
+
+`config-v2.json`: seed 99, `trade-tally` strategy, the same two probes
+plus `markouts_ns` horizons — demonstrating the markout section inside a
+recorded run (benign/adverse signs, `null` past the tape end).
 
 ## Growing this corpus
 

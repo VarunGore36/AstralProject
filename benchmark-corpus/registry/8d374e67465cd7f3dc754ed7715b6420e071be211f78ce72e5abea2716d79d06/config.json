@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "seed": 99,
+  "strategy": "trade-tally",
+  "markouts_ns": [1, 2],
+  "probes": [
+    {"side": "buy", "price": "86000", "quantity": "0.01", "fee_bps": 10},
+    {"side": "sell", "price": "85900", "quantity": "0.01", "fee_bps": 10}
+  ]
+}
