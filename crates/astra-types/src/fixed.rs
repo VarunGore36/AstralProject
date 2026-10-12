@@ -150,6 +150,14 @@ impl fmt::Display for Fixed {
 }
 
 fn round_div(numerator: i128, denominator: i128) -> Option<i128> {
+    // Sign-normalize first: with a negative divisor the truncation below
+    // rounds ties toward zero instead of away. Negation can itself overflow
+    // (i128::MIN), and that fails loud like every other checked op.
+    let (numerator, denominator) = if denominator < 0 {
+        (numerator.checked_neg()?, denominator.checked_neg()?)
+    } else {
+        (numerator, denominator)
+    };
     let half = denominator / 2;
     if numerator >= 0 {
         numerator.checked_add(half)?.checked_div(denominator)
@@ -244,5 +252,193 @@ mod tests {
         let json = serde_json::to_string(&value).unwrap();
         assert_eq!(json, "\"-108105.12345678\"");
         assert_eq!(serde_json::from_str::<Fixed>(&json).unwrap(), value);
+    }
+
+    /// Fixed-seed property sweep (strategy §9). No property framework is
+    /// available offline, so a xorshift64 with a fixed seed drives thousands
+    /// of algebraic checks deterministically — same seed, same cases, every
+    /// run. Values stay within ±1e12 raw (±10k units, the realistic price
+    /// band) so every cross-multiplied bound stays inside i128 and every
+    /// check actually verifies instead of skipping on overflow.
+    fn sweep_state() -> u64 {
+        0x9E37_79B9_7F4A_7C15
+    }
+
+    fn rng_next(state: &mut u64) -> u64 {
+        let mut x = *state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *state = x;
+        x
+    }
+
+    fn sweep_raw(state: &mut u64) -> i128 {
+        match rng_next(state) % 16 {
+            0 => 0,
+            1 => 1,
+            2 => -1,
+            3 => 100_000_000,
+            4 => -100_000_000,
+            _ => {
+                let magnitude = (rng_next(state) % 1_000_000_000_001) as i128;
+                if rng_next(state) % 2 == 0 {
+                    magnitude
+                } else {
+                    -magnitude
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn addition_is_exact_and_invertible() {
+        let mut state = sweep_state();
+        for _ in 0..4096 {
+            let (a, b) = (sweep_raw(&mut state), sweep_raw(&mut state));
+            let (fa, fb) = (Fixed::from_raw(a), Fixed::from_raw(b));
+            // Exactness against the integer op: None exactly when i128 says so.
+            assert_eq!(
+                fa.checked_add(fb).map(|sum| sum.raw()),
+                a.checked_add(b),
+                "{a} + {b}"
+            );
+            // Commutativity and invertibility where defined.
+            assert_eq!(fa.checked_add(fb), fb.checked_add(fa));
+            if let Some(sum) = fa.checked_add(fb) {
+                assert_eq!(sum.checked_sub(fb), Some(fa), "({a} + {b}) - {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn multiplication_stays_within_half_ulp() {
+        let mut state = sweep_state();
+        for _ in 0..4096 {
+            let (a, b) = (sweep_raw(&mut state), sweep_raw(&mut state));
+            let Some(result) = Fixed::from_raw(a).checked_mul(Fixed::from_raw(b)) else {
+                panic!("sweep range must stay multipliable: {a} * {b}");
+            };
+            // |r*S - a*b| * 2 <= S: the rounded result is the nearest raw
+            // unit to the exact rational, ties included.
+            let error = (result.raw() * SCALE - a * b).abs();
+            assert!(
+                error * 2 <= SCALE,
+                "{a} * {b} = {} off by {error}",
+                result.raw()
+            );
+        }
+    }
+
+    #[test]
+    fn division_stays_within_half_ulp_on_every_divisor_sign() {
+        let mut state = sweep_state();
+        let mut covered_nonzero = 0u32;
+        for _ in 0..8192 {
+            let (a, b) = (sweep_raw(&mut state), sweep_raw(&mut state));
+            if b == 0 {
+                continue;
+            }
+            covered_nonzero += 1;
+            let Some(result) = Fixed::from_raw(a).checked_div(Fixed::from_raw(b)) else {
+                panic!("sweep range must stay divisible: {a} / {b}");
+            };
+            // |r*b - a*S| * 2 <= |b|, for negative divisors too — this is the
+            // property the sign-normalized round_div exists to guarantee.
+            let error = (result.raw() * b - a * SCALE).abs();
+            assert!(
+                error * 2 <= b.abs(),
+                "{a} / {b} = {} off by {error}",
+                result.raw()
+            );
+        }
+        assert!(covered_nonzero > 7000, "sweep must exercise division");
+    }
+
+    #[test]
+    fn negation_is_an_exact_sign_flip() {
+        let mut state = sweep_state();
+        for _ in 0..4096 {
+            let (a, b) = (sweep_raw(&mut state), sweep_raw(&mut state));
+            let (fa, fb) = (Fixed::from_raw(a), Fixed::from_raw(b));
+            // Rounding is an odd function on every divisor sign: negating an
+            // input negates the output exactly, never by a neighboring ulp.
+            assert_eq!(
+                fa.checked_mul(fb).and_then(|p| p.checked_neg()),
+                Fixed::from_raw(a)
+                    .checked_mul(Fixed::from_raw(-b))
+                    .or_else(|| Fixed::from_raw(-a).checked_mul(fb)),
+                "symmetry of {a} * {b}"
+            );
+            assert_eq!(
+                fa.checked_div(fb).and_then(|q| q.checked_neg()),
+                if b == 0 {
+                    None
+                } else {
+                    Fixed::from_raw(-a).checked_div(fb)
+                },
+                "symmetry of {a} / {b}"
+            );
+        }
+        assert_eq!(Fixed::from_raw(i128::MIN).checked_neg(), None);
+        assert_eq!(
+            Fixed::from_raw(i128::MAX).checked_add(Fixed::from_raw(1)),
+            None
+        );
+    }
+
+    #[test]
+    fn display_parse_round_trips_on_sweep_values() {
+        let mut state = sweep_state();
+        for _ in 0..1024 {
+            let value = Fixed::from_raw(sweep_raw(&mut state));
+            assert_eq!(value.to_string().parse::<Fixed>().unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn f64_projection_preserves_order_and_sign() {
+        let mut state = sweep_state();
+        for _ in 0..1024 {
+            let (a, b) = (sweep_raw(&mut state), sweep_raw(&mut state));
+            let (fa, fb) = (
+                Fixed::from_raw(a).to_f64_for_analytics(),
+                Fixed::from_raw(b).to_f64_for_analytics(),
+            );
+            assert_eq!(fa < fb, a < b, "{a} vs {b}");
+            assert_eq!(fa == 0.0, a == 0, "{a}");
+            assert_eq!(fa > 0.0, a > 0, "{a}");
+        }
+    }
+
+    #[test]
+    fn ties_round_away_from_zero_whichever_side_the_divisor_is_on() {
+        // Exact half-ulp quotients: 1 / 2.0 is +0.5 raw either way you
+        // write the divisor, so both must land on +1 raw.
+        assert_eq!(
+            Fixed::from_raw(1).checked_div(Fixed::from_raw(200_000_000)),
+            Some(Fixed::from_raw(1))
+        );
+        assert_eq!(
+            Fixed::from_raw(1).checked_div(Fixed::from_raw(-200_000_000)),
+            Some(Fixed::from_raw(-1))
+        );
+        assert_eq!(
+            Fixed::from_raw(-1).checked_div(Fixed::from_raw(-200_000_000)),
+            Some(Fixed::from_raw(1))
+        );
+        assert_eq!(
+            Fixed::from_raw(-1).checked_div(Fixed::from_raw(200_000_000)),
+            Some(Fixed::from_raw(-1))
+        );
+        // Multiplication ties behave the same through the shared divider.
+        assert_eq!(
+            Fixed::from_raw(1).checked_mul(Fixed::from_raw(50_000_000)),
+            Some(Fixed::from_raw(1))
+        );
+        assert_eq!(
+            Fixed::from_raw(-1).checked_mul(Fixed::from_raw(50_000_000)),
+            Some(Fixed::from_raw(-1))
+        );
     }
 }

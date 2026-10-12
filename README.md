@@ -814,6 +814,7 @@ which equality broke).
 | Fills from Python | `simulate_fill` answers print math over JSON-able tuples (gaps explicitly out of scope — use the probe for gap-bearing streams); live import demoed | TESTED |
 | Full loop from Python | `normalize_capture` → `replay_capture`/`replay_tables` dicts (records, rows, report incl. `signal_hash`); raw ≡ normalized hashes proven through the bindings too; unknown strategies raise `ValueError` | TESTED |
 | Post-fill markouts | `markout`/`probe_markout` + `--markout` horizons report signed bps per horizon (adverse always negative; gaps and uncovered horizons `unknown`); strict horizon parser, golden markout section, default probe output unchanged | TESTED |
+| Fixed-point rounding | half away from zero on every divisor sign (a negative-divisor tie bug found by the new tests and fixed in `round_div`); seeded 4096-case sweeps prove add-exactness, half-ulp mul/div bounds, negation symmetry, display round-trips, f64 order | PROVEN |
 | `import astra` without maturin | cdylib+rlib crate types keep tests green while `cargo build` produces an importable module (verified: parse/mul/clock/div0 live in Python 3.14) | IMPORTABLE |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |
