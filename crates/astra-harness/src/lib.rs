@@ -184,6 +184,53 @@ pub struct BenchmarkRun {
     pub trades: u64,
     pub gaps: u64,
 }
+
+/// One row of a sweep: which config produced which report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SweepRow {
+    pub config: PathBuf,
+    pub hash: String,
+    pub strategy: String,
+    pub seed: u64,
+    pub probes: u64,
+    pub fills: u64,
+}
+
+/// Run every config through one capture: each gets its own benchmark run,
+/// report file (`<hash>.json` in the output dir, content-addressed so
+/// same-named configs never collide), and optional registry entry. One bad
+/// config aborts the sweep — a partial sweep table would pretend a
+/// comparison it never ran.
+pub fn run_sweep(
+    input: &Path,
+    configs: &[(PathBuf, String)],
+    output_dir: &Path,
+    registry: Option<&Path>,
+) -> Result<Vec<SweepRow>, HarnessError> {
+    if configs.is_empty() {
+        return Err(HarnessError::Config("sweep found no configs".to_owned()));
+    }
+    let mut rows = Vec::with_capacity(configs.len());
+    for (path, config_json) in configs {
+        let ahead = |error| HarnessError::Config(format!("{}: {error}", path.display()));
+        let config: BenchmarkConfig =
+            serde_json::from_str(config_json).map_err(|error| ahead(error.to_string()))?;
+        let run = run_benchmark(input, config_json).map_err(|error| ahead(error.to_string()))?;
+        write_report_file(&output_dir.join(format!("{}.json", run.hash)), &run.bytes)?;
+        if let Some(registry) = registry {
+            record_run(registry, config_json, &run)?;
+        }
+        rows.push(SweepRow {
+            config: path.clone(),
+            hash: run.hash,
+            strategy: config.strategy,
+            seed: config.seed,
+            probes: run.probes,
+            fills: run.fills,
+        });
+    }
+    Ok(rows)
+}
 fn side_name(side: StrategySide) -> &'static str {
     match side {
         StrategySide::Buy => "buy",
@@ -429,6 +476,31 @@ pub fn format_run_report(input: &Path, config: &Path, output: &Path, run: &Bench
     let _ = writeln!(out, "fills       {}", run.fills);
     let _ = writeln!(out, "report      {}", output.display());
     let _ = writeln!(out, "report_hash {}", run.hash);
+
+    out
+}
+
+/// Render a sweep table exactly as the CLI prints it.
+///
+/// Golden-tested with the other report printers. One line per config in the
+/// order given (callers pass directory order, already sorted).
+pub fn format_sweep_report(input: &Path, output_dir: &Path, rows: &[SweepRow]) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    let _ = writeln!(out, "input       {}", input.display());
+    let _ = writeln!(out, "configs     {}", rows.len());
+    for row in rows {
+        let _ = writeln!(
+            out,
+            "run         {} {} seed={} fills={}",
+            row.config.display(),
+            row.hash,
+            row.seed,
+            row.fills
+        );
+    }
+    let _ = writeln!(out, "reports     {}", output_dir.display());
 
     out
 }

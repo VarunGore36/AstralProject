@@ -336,3 +336,80 @@ fn markout_runs_record_and_verify() {
     std::fs::remove_dir_all(&dir).unwrap();
     std::fs::remove_dir_all(&registry).unwrap();
 }
+
+#[test]
+fn sweep_runs_configs_records_all_and_tables_results() {
+    use astra_harness::{format_sweep_report, run_sweep, verify_run};
+    use std::path::PathBuf;
+
+    let dir = temp_directory("sweep");
+    let reports = temp_directory("sweep-reports");
+    let registry = temp_directory("sweep-registry");
+    write_capture(&dir);
+
+    let sell_config = CONFIG.replace("book-top", "trade-tally");
+    let configs = vec![
+        (PathBuf::from("a.json"), CONFIG.to_owned()),
+        (PathBuf::from("b.json"), sell_config),
+    ];
+    let rows = run_sweep(&dir, &configs, &reports, Some(&registry)).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_ne!(rows[0].hash, rows[1].hash);
+    assert_eq!(rows[0].config, PathBuf::from("a.json"));
+
+    // Reports land content-addressed; every run recorded and verifiable.
+    for row in &rows {
+        assert!(reports.join(format!("{}.json", row.hash)).is_file());
+        assert!(verify_run(&registry, &row.hash, &dir).unwrap());
+    }
+
+    let text = format_sweep_report(&dir, &reports, &rows);
+    for line in [
+        "configs     2",
+        &format!("run         a.json {}", rows[0].hash),
+        &format!("run         b.json {}", rows[1].hash),
+    ] {
+        assert!(text.contains(line), "missing line: {line}\n{text}");
+    }
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&reports).unwrap();
+    std::fs::remove_dir_all(&registry).unwrap();
+}
+
+#[test]
+fn sweep_with_no_configs_fails_loud_not_empty() {
+    use astra_harness::run_sweep;
+
+    let dir = temp_directory("sweep-empty");
+    let reports = temp_directory("sweep-empty-reports");
+    write_capture(&dir);
+
+    assert!(run_sweep(&dir, &[], &reports, None).is_err());
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    let _ = std::fs::remove_dir_all(&reports);
+}
+
+#[test]
+fn sweep_names_the_config_that_breaks_it() {
+    use astra_harness::run_sweep;
+    use std::path::PathBuf;
+
+    let dir = temp_directory("sweep-bad");
+    let reports = temp_directory("sweep-bad-reports");
+    write_capture(&dir);
+
+    let configs = vec![
+        (PathBuf::from("good.json"), CONFIG.to_owned()),
+        (
+            PathBuf::from("bad.json"),
+            CONFIG.replace("\"book-top\"", "\"rsi-9000\""),
+        ),
+    ];
+    let error = run_sweep(&dir, &configs, &reports, None).unwrap_err();
+    assert!(error.to_string().contains("bad.json"), "{error}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&reports).unwrap();
+}

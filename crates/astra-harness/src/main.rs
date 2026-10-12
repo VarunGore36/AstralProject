@@ -19,6 +19,8 @@ enum Command {
     List(ListArgs),
     /// Reproduce a recorded run against a capture directory.
     Verify(VerifyArgs),
+    /// Run every config in a directory, record all, print a table.
+    Sweep(SweepArgs),
 }
 
 #[derive(clap::Args)]
@@ -50,6 +52,21 @@ struct VerifyArgs {
     input: PathBuf,
 }
 
+#[derive(clap::Args)]
+struct SweepArgs {
+    #[arg(long, value_name = "DIR")]
+    input: PathBuf,
+    /// Directory of config JSON files (sorted `*.json`; anything else ignored).
+    #[arg(long, value_name = "DIR")]
+    config_dir: PathBuf,
+    /// Report files land here as `<hash>.json`.
+    #[arg(long, value_name = "DIR")]
+    output_dir: PathBuf,
+    /// Also record every run into this registry.
+    #[arg(long, value_name = "DIR")]
+    record: Option<PathBuf>,
+}
+
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -65,6 +82,7 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Run(args) => run_benchmark(args),
         Command::List(args) => list_registry(args),
         Command::Verify(args) => verify_run(args),
+        Command::Sweep(args) => run_sweep(args),
     }
 }
 
@@ -117,4 +135,34 @@ fn verify_run(args: VerifyArgs) -> Result<(), String> {
     } else {
         Err("reproduction mismatch".to_owned())
     }
+}
+
+fn run_sweep(args: SweepArgs) -> Result<(), String> {
+    let mut configs = Vec::new();
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&args.config_dir)
+        .map_err(|error| error.to_string())?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    entries.sort();
+    for path in &entries {
+        let body = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+        configs.push((path.clone(), body));
+    }
+
+    let rows = astra_harness::run_sweep(
+        &args.input,
+        &configs,
+        &args.output_dir,
+        args.record.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+
+    print!(
+        "{}",
+        astra_harness::format_sweep_report(&args.input, &args.output_dir, &rows)
+    );
+
+    Ok(())
 }

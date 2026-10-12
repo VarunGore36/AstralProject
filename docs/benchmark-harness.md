@@ -109,6 +109,24 @@ hashes: exact match or `MISMATCH`, nothing in between. A mismatch exits
 non-zero, so scripts judge it mechanically; unknown hashes fail loudly;
 an empty directory lists as empty, not as an error.
 
+## Sweeps (local parameter scans)
+
+```sh
+astra-harness sweep --input ./capture --config-dir ./grids \
+  --output-dir ./sweep-reports --record ./experiments
+```
+
+Runs every sorted `*.json` config in the directory through one capture
+each, writes each report as `<hash>.json` (content-addressed, so
+same-named configs never collide), records every run when `--record` is
+passed, and prints one comparison line per config (file, hash, seed,
+fills). One bad config aborts the sweep with its filename attached — a
+partial table would pretend a comparison it never ran. Grid expansion
+(cartesian products over seeds, strategies, prices) stays outside the
+binary: generate the config files with a five-line script, then sweep the
+directory. The seed corpus ships two configs (`config-v1.json`,
+`config-v2.json`) that sweep into the exact recorded hashes.
+
 ## Acceptance
 
 - Two runs over one capture + config → byte-identical files (asserted in CI

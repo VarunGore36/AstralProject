@@ -30,6 +30,12 @@ cargo run -q -p astra-harness -- run \
   --input benchmark-corpus/capture \
   --config benchmark-corpus/config-v1.json \
   --output /tmp/seed-report.json
+
+# Sweep both seed configs at once (hashes must match the registry):
+cargo run -q -p astra-harness -- sweep \
+  --input benchmark-corpus/capture \
+  --config-dir benchmark-corpus \
+  --output-dir /tmp/seed-sweep
 ```
 
 ## What the seed runs contain
