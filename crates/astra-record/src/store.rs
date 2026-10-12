@@ -186,6 +186,40 @@ pub fn read_all(directory: &Path) -> Result<Vec<CaptureRecord>, StoreError> {
     Ok(records)
 }
 
+/// Stream a capture's records chunk by chunk: each chunk is hash-verified
+/// and count-checked exactly like [`read_all`], but only one chunk is
+/// resident at a time. Item errors surface per chunk in index order, so a
+/// caller that stops at the first `Err` reads no further than the old path
+/// would have.
+pub(crate) fn stream_verified_records(
+    directory: &Path,
+) -> Result<impl Iterator<Item = Result<CaptureRecord, StoreError>>, StoreError> {
+    let owned = directory.to_owned();
+    let index = read_index(&owned)?;
+    Ok(index.into_iter().flat_map(move |entry| {
+        let path = owned.join(&entry.name);
+        let chunk = verify_chunk(&path, &entry.sha256)
+            .and_then(|()| read_chunk(&path))
+            .and_then(|chunk| {
+                if chunk.len() as u64 != entry.records {
+                    Err(StoreError::Malformed(format!(
+                        "{}: index claims {} records but the chunk holds {}",
+                        entry.name,
+                        entry.records,
+                        chunk.len()
+                    )))
+                } else {
+                    Ok(chunk)
+                }
+            });
+        match chunk {
+            Ok(chunk) => chunk.into_iter().map(Ok).collect::<Vec<_>>(),
+            Err(error) => vec![Err(error)],
+        }
+        .into_iter()
+    }))
+}
+
 fn encode_record(record: &CaptureRecord, out: &mut Vec<u8>) -> Result<(), StoreError> {
     let encoded = postcard::to_stdvec(record)?;
     let length = u32::try_from(encoded.len())

@@ -50,7 +50,8 @@ pub fn reconstruct(
         summary.snapshot_loaded = Some(loaded.last_update_id);
     }
 
-    for record in store::read_all(&input.join(FRAMES_DIR))? {
+    for record in store::stream_verified_records(&input.join(FRAMES_DIR))? {
+        let record = record?;
         summary.records += 1;
         if record.seq != expected_seq {
             summary.seq_breaks += 1;
@@ -248,10 +249,24 @@ mod tests {
         write_capture_as(output, payloads, instrument());
     }
 
+    fn write_capture_chunked(output: &Path, records_per_chunk: usize, payloads: Vec<Vec<u8>>) {
+        write_capture_chunked_as(output, records_per_chunk, payloads, instrument());
+    }
+
     fn write_capture_as(output: &Path, payloads: Vec<Vec<u8>>, instrument: Instrument) {
+        write_capture_chunked_as(output, 100, payloads, instrument);
+    }
+
+    fn write_capture_chunked_as(
+        output: &Path,
+        records_per_chunk: usize,
+        payloads: Vec<Vec<u8>>,
+        instrument: Instrument,
+    ) {
         std::fs::create_dir_all(output.join(FRAMES_DIR)).unwrap();
 
-        let mut writer = store::ChunkWriter::open(output.join(FRAMES_DIR), 100).unwrap();
+        let mut writer =
+            store::ChunkWriter::open(output.join(FRAMES_DIR), records_per_chunk).unwrap();
         for (index, payload) in payloads.iter().enumerate() {
             writer
                 .append(&CaptureRecord {
@@ -317,6 +332,40 @@ mod tests {
         assert!(summary.book.spread().unwrap().raw() > 0);
 
         std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn chunking_does_not_change_reconstruction() {
+        // The same eight real frames as one chunk and as eight chunks must
+        // rebuild the identical book with identical counters: streaming
+        // changed acquisition, not reconstruction.
+        let single = temp_directory("chunked-single");
+        let multi = temp_directory("chunked-multi");
+        let payloads = real_sequence();
+        write_capture(&single, payloads.clone());
+        write_capture_chunked(&multi, 1, payloads);
+
+        let one = reconstruct(&single, None).unwrap();
+        let many = reconstruct(&multi, None).unwrap();
+
+        assert_eq!(one.records, many.records);
+        assert_eq!(one.venue_frames, many.venue_frames);
+        assert_eq!(one.synthetic_records, many.synthetic_records);
+        assert_eq!(one.diffs_applied, many.diffs_applied);
+        assert_eq!(one.frames_without_a_book, many.frames_without_a_book);
+        assert_eq!(one.invalid_diffs, many.invalid_diffs);
+        assert_eq!(one.skipped_before_snapshot, many.skipped_before_snapshot);
+        assert_eq!(one.gaps, many.gaps);
+        assert_eq!(one.rejected_after_gap, many.rejected_after_gap);
+        assert_eq!(one.connection_gaps, many.connection_gaps);
+        assert_eq!(one.snapshot_loaded, many.snapshot_loaded);
+        assert_eq!(one.first_error, many.first_error);
+        assert_eq!(one.seq_breaks, many.seq_breaks);
+        assert_eq!(one.inband_snapshots, many.inband_snapshots);
+        assert_eq!(one.book, many.book);
+
+        std::fs::remove_dir_all(&single).unwrap();
+        std::fs::remove_dir_all(&multi).unwrap();
     }
 
     fn bybit_instrument() -> Instrument {

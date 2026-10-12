@@ -114,6 +114,15 @@ Measured on a 200k-frame synthetic capture (debug build, peak child RSS):
 - Touching `check` (already streams) or the store format (append-only,
   content-addressed, and fine).
 
+### Follow-up (2026-10-12): `reconstruct` and `compare` stream too
+
+The same hazard lived in `reconstruct` and `compare` (both `read_all`ed).
+Both now walk chunks through `store::stream_verified_records` — hash plus
+count checked per chunk, O(chunk) memory, identical order and identical
+error mapping. Proven by `chunking_does_not_change_reconstruction` (8 real
+frames as 1 vs 8 chunks: identical book, identical counters). Every reader
+in the pipeline now streams; `read_all` remains for tests and small tools.
+
 ## Acceptance
 
 - [x] Replay: all determinism tests pass unmodified, plus a multi-chunk

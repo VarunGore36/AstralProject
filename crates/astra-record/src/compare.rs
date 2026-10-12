@@ -141,7 +141,8 @@ fn load_events(input: &Path) -> Result<LoadedEvents, RecordError> {
     let mut venue_frames = 0u64;
     let mut unparseable = 0u64;
 
-    for record in store::read_all(&input.join(FRAMES_DIR))? {
+    for record in store::stream_verified_records(&input.join(FRAMES_DIR))? {
+        let record = record?;
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
             // A gap marker no parser understands hides the shape of its hole;
             // fail loud like every other processor instead of skipping blind.
@@ -189,7 +190,8 @@ fn load_references(reference: &Path) -> Result<(Vec<BookSnapshot>, u64), RecordE
     let mut snapshots = Vec::new();
     let mut venue_frames = 0u64;
 
-    for record in store::read_all(&reference.join(FRAMES_DIR))? {
+    for record in store::stream_verified_records(&reference.join(FRAMES_DIR))? {
+        let record = record?;
         if record.flags.contains(CaptureFlags::SYNTHETIC) {
             if serde_json::from_slice::<GapMarker>(&record.payload).is_err() {
                 return Err(crate::error::RecordError::UndecodableGap { seq: record.seq });
