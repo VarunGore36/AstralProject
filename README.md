@@ -1002,6 +1002,10 @@ Not a trading bot. Not a signal service. Not a claim about returns. It is
 infrastructure for deciding whether a claim about markets survives contact with
 realistic costs.
 
+Nothing here is for sale: no product, no pricing, no commercial offering,
+no waitlist. If that ever changes, it will be stated here first — not
+implied by a feature.
+
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE).

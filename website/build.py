@@ -106,7 +106,7 @@ TEMPLATE = """<!DOCTYPE html>
       </div>
     </div>
     <div class="wrap footer-base">
-      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns.</p>
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns. Nothing here is for sale.</p>
     </div>
   </footer>
 
