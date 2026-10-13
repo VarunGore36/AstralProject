@@ -32,8 +32,6 @@ from decimal import Decimal
 NOTIONAL = Decimal("10000")
 FEE_BPS = Decimal("5")
 FEE_PER_FILL = NOTIONAL * FEE_BPS / Decimal("10000")
-ENTRY_PCT = 75
-EXIT_PCT = 50
 WARMUP_HOURS = 720
 
 # (url template, sha per month). Pins re-verified by this script on download.
@@ -114,7 +112,13 @@ def percentile(sorted_vals, pct: int) -> Decimal:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", required=True)
+    parser.add_argument("--enter-pct", type=int, default=75)
+    parser.add_argument("--exit-pct", type=int, default=50)
     args = parser.parse_args()
+    if not 0 < args.exit_pct < args.enter_pct <= 100:
+        parser.error("need 0 < --exit-pct < --enter-pct <= 100")
+    entry_pct, exit_pct = args.enter_pct, args.exit_pct
+    print(f"band: enter p{entry_pct}, exit p{exit_pct}")
     fund_paths, spot_paths, perp_paths = fetch(pathlib.Path(args.data_dir))
 
     funding = [r for p in fund_paths for r in read_funding(p)]
@@ -188,12 +192,12 @@ def main() -> None:
             if index - s >= WARMUP_HOURS:
                 tradeable_bars += 1
                 ordered = sorted(history)
-                if not holding and basis >= percentile(ordered, ENTRY_PCT):
+                if not holding and basis >= percentile(ordered, entry_pct):
                     holding = True
                     start_ts, start_basis = ts, basis
                     trades += 1
                     entries.append((ts, basis))
-                elif holding and basis < percentile(ordered, EXIT_PCT):
+                elif holding and basis < percentile(ordered, exit_pct):
                     holding = False
                     all_spans.append((start_ts, ts))
                     timed_drift += -(basis - start_basis) * size

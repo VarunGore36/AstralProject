@@ -49,7 +49,7 @@ The honest version of "timing works": timing the premium is real edge on
 drift and negative edge after turnover, at $10k size and 5 bps a fill.
 
 What would strengthen or overturn this: wider hysteresis (fewer turns —
-the obvious next run, same script, two constants); maker instead of taker
+done as note 007, same script, two flags); maker instead of taker
 fills where the book supports it; a full consecutive year so no block
 splitting is needed; and the live-captured version, where fills stop being
 assumed and start being simulated.
