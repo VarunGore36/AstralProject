@@ -25,6 +25,8 @@ RESEARCH = [
      "+$523.85 on $20k in 90 days; fees 3.6% of funding."),
     ("005-hostile-carry.md", "Note 005", "Carry in a hostile regime",
      "+$55.51 on $20k in 90 days; fees 26% of funding."),
+    ("006-timed-carry.md", "Note 006", "Timing carry by premium percentile",
+     "Drift -$53 to +$255, fees $40 to $3,260; selectivity dies on turnover."),
 ]
 
 # (filename, nav label, page title, description)
