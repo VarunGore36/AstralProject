@@ -23,6 +23,8 @@ RESEARCH = [
      "529 prints in the busiest second; 73% share a millisecond."),
     ("004-funding-carry.md", "Note 004", "BTC funding carry, one window",
      "+$523.85 on $20k in 90 days; fees 3.6% of funding."),
+    ("005-hostile-carry.md", "Note 005", "Carry in a hostile regime",
+     "+$55.51 on $20k in 90 days; fees 26% of funding."),
 ]
 
 # (filename, nav label, page title, description)

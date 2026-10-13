@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Carry in a hostile regime — Astral Project</title>
+  <meta name="description" content="+$55.51 on $20k in 90 days; fees 26% of funding." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="../docs/normalized-schema.html">Schema</a>
+        <a href="../docs/replay-design.html">Replay</a>
+        <a href="../docs/cross-machine-repro.html">Repro</a>
+        <a href="../docs/soak-runbook.html">Soak</a>
+        <a href="../docs/execution-model.html">Fills</a>
+        <a href="../docs/audit-2026-10-06.html">Audit</a>
+        <a href="../docs/failure-policy.html">Policy</a>
+        <a href="../docs/benchmark-harness.html">Bench</a>
+        <a href="../docs/status-2026-10-10.html">Status</a>
+        <a href="../docs/status-2026-10-12.html">Status ✦</a>
+        <a href="../docs/streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/005-hostile-carry.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-005-the-same-carry-in-a-hostile-regime-earns-nothing">Research note 005: the same carry, in a hostile regime, earns nothing</h1>
+<p>Date: 2026-10-13 · Status: <strong>single 90-day window, hourly bars, stated
+assumptions.</strong> Mirror of note 004 with identical method, opposite weather:
+October–December 2022, when funding averaged near zero and went negative
+in November. A negative result with leashed claims.</p>
+<h2 id="question">Question</h2>
+<p>Note 004 found long-spot/short-perp carry clearing its costs 28-to-1 in
+Q1 2024. Was that the strategy or the weather? This note reruns the exact
+unconditional hold — $10k legs, first/last-close fills, 5 bps taker, no
+borrow model — over the three months containing the FTX collapse.</p>
+<h2 id="dataset">Dataset</h2>
+<ul>
+<li>Binance public archive (<code>data.binance.vision</code>), three slices pinned by
+  SHA-256 in <code>research/scripts/carry_005.py</code> (independent script, same
+  math; note 004's script untouched): 276 funding payments plus 2,208
+  hourly bars each for spot and perp, hour-aligned with 0 mismatches
+  checked in analysis.</li>
+<li>Same bronze labeling as note 004: archive data, no capture provenance.</li>
+</ul>
+<h2 id="assumptions">Assumptions</h2>
+<p>Identical to note 004 in every cell ($20k unlevered capital, 4 fills at
+5 bps = $20.00, zero beyond-fee slippage assumed, fills at closes). The
+comparison is clean by construction: only the window changed.</p>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Measure</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Window</td>
+<td>2022-10-01 → 2022-12-31, 276 funding payments</td>
+</tr>
+<tr>
+<td>Mean funding rate</td>
+<td>0.28 bps per 8h payment (vs 2.04 in Q1 2024)</td>
+</tr>
+<tr>
+<td>Funding received, by month</td>
+<td>Oct +$53.08 · Nov −$17.37 · Dec +$42.36</td>
+</tr>
+<tr>
+<td>Negative payments</td>
+<td>8/93 · 32/90 · 11/93</td>
+</tr>
+<tr>
+<td>Funding received, total</td>
+<td>$78.08</td>
+</tr>
+<tr>
+<td>Entry / exit fees</td>
+<td>$20.00 (26% of funding, vs 3.6% before)</td>
+</tr>
+<tr>
+<td>Basis (perp − spot), entry → exit</td>
+<td>−$9.78 → −$4.80 (discount narrowed)</td>
+</tr>
+<tr>
+<td>Basis drift PnL</td>
+<td>−$2.57</td>
+</tr>
+<tr>
+<td>Net, 90 days on $20,000</td>
+<td><strong>+$55.51 (+0.28%)</strong></td>
+</tr>
+<tr>
+<td>Daily Sharpe (analytic floats)</td>
+<td>4.35 — descriptive only, see limits</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reading">Reading</h2>
+<p>Two facts, both against the strategy. First, the fee ratio tells the
+whole story before anything else: at 26% of funding versus 3.6%, the same
+$20 of costs that was rounding error in Q1 2024 eats a quarter of the
+carry here. Carry does not have a return; it has weather, and fees are
+constant. Second, the net — fifty-five dollars on twenty thousand over
+ninety days — sits inside every unmodeled cost at once: one basis point
+of slippage per fill, one hour of mistimed entry, one revised fee tier,
+and the sign flips. This is not "carry earns 0.28%"; it is "carry earns
+nothing here, and the nothing is measured."</p>
+<p>Together the notes frame the question honestly: the strategy survives its
+costs only when funding runs hot, and funding runs hot only sometimes.
+What would strengthen or overturn this: the basis-percentile entry timing
+both notes defer (does selectivity buy back the dead quarters?); a full
+bear-to-bull year rather than two chosen windows; and the live-captured
+version the 06b protocol specifies, where fills stop being assumed.</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">python3 research/scripts/carry_005.py --data-dir /tmp/carry005
+</code></pre>
+<p>Nine archive SHA-256 hashes pinned in the script, refused on any other
+bytes — same provenance discipline as note 004.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/005-hostile-carry.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns. Nothing here is for sale.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

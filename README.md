@@ -835,6 +835,7 @@ which equality broke).
 | Determinism gate | pinned 8-frame fixture: normalize-twice byte-identical, replay `signal_hash` and parquet tree hash pinned (`ops/determinism.sh check`, CI-enforced, `pin` mode for intentional changes) | ENFORCED |
 | Seed benchmark corpus | `benchmark-corpus/` (bronze tier, honestly labeled): 10-frame capture + two configs + recorded registry runs reproducing `reproduced` out of the box; sweep both with one `harness sweep` command; tier graduation rules documented | SEEDED |
 | Funding carry, one window | Q1 2024 long-spot/short-perp: +$523.85 net on $20k after $20 fees and adverse basis drift; SHA-pinned archive slices, stdlib-only reproduction script | SUBSTANTIVE (single window) |
+| Hostile carry, same method | Q4 2022 mirror: +$55.51 net as fees rise to 26% of funding; a measured break-even, published as a negative result | SUBSTANTIVE (single window) |
 | `import astra` without maturin | cdylib+rlib crate types keep tests green while `cargo build` produces an importable module (verified: parse/mul/clock/div0 live in Python 3.14) | IMPORTABLE |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |
