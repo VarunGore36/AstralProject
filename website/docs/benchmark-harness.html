@@ -148,9 +148,11 @@ passed, and prints one comparison line per config (file, hash, seed,
 fills). One bad config aborts the sweep with its filename attached — a
 partial table would pretend a comparison it never ran. Grid expansion
 (cartesian products over seeds, strategies, prices) stays outside the
-binary: generate the config files with a five-line script, then sweep the
-directory. The seed corpus ships two configs (<code>config-v1.json</code>,
-<code>config-v2.json</code>) that sweep into the exact recorded hashes.</p>
+binary: generate the config files with <code>ops/sweep-grid.py</code> (template plus
+axes JSON over dot paths; unknown paths refused before anything is
+written), review the file list, then sweep the directory. The seed corpus
+ships two configs (<code>config-v1.json</code>, <code>config-v2.json</code>) that sweep into the
+exact recorded hashes.</p>
 <h2 id="acceptance">Acceptance</h2>
 <ul>
 <li>Two runs over one capture + config → byte-identical files (asserted in CI
