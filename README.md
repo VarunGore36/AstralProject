@@ -839,6 +839,7 @@ which equality broke).
 | Timed carry, p75/p50 | Premium-timed entries flip drift −$53 → +$255 but pay 163 round trips ($3,260 vs $455 harvested); selectivity dies on turnover | SUBSTANTIVE (two windows) |
 | Band sensitivity, five widths | Full gradient: wider bands bleed slower, widest scrapes +$80.75 yet trails the hold by $300; turnover dominates everywhere | SUBSTANTIVE (two windows) |
 | Full-year carry, no chosen windows | 2023 unconditional +$746.55 vs timed +$241.48; eleven months paid; CSV-content pins after container variance found | SUBSTANTIVE (full year) |
+| Session regimes, both venues | One week, ~15M prints: US third carries 42–44%; spot directional, perp balanced; half of all prints share a millisecond on each tape | SUBSTANTIVE (single week) |
 | `import astra` without maturin | cdylib+rlib crate types keep tests green while `cargo build` produces an importable module (verified: parse/mul/clock/div0 live in Python 3.14) | IMPORTABLE |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |

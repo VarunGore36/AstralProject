@@ -31,6 +31,8 @@ RESEARCH = [
      "Five bands, one gradient: turnover dominates at every width."),
     ("008-full-year-carry.md", "Note 008", "A full year of carry",
      "+$746.55 unconditional vs +$241.48 timed; no chosen windows."),
+    ("009-sessions.md", "Note 009", "Session regimes in print flow",
+     "US carries 42-44%; spot directional, perp balanced; both batch."),
 ]
 
 # (filename, nav label, page title, description)
