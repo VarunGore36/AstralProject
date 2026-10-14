@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A full year of carry — Astral Project</title>
+  <meta name="description" content="+$746.55 unconditional vs +$241.48 timed; no chosen windows." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="../docs/normalized-schema.html">Schema</a>
+        <a href="../docs/replay-design.html">Replay</a>
+        <a href="../docs/cross-machine-repro.html">Repro</a>
+        <a href="../docs/soak-runbook.html">Soak</a>
+        <a href="../docs/execution-model.html">Fills</a>
+        <a href="../docs/audit-2026-10-06.html">Audit</a>
+        <a href="../docs/failure-policy.html">Policy</a>
+        <a href="../docs/benchmark-harness.html">Bench</a>
+        <a href="../docs/status-2026-10-10.html">Status</a>
+        <a href="../docs/status-2026-10-12.html">Status ✦</a>
+        <a href="../docs/streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/008-full-year-carry.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-008-a-full-year-of-carry-bear-grind-to-bull-ramp">Research note 008: a full year of carry, bear grind to bull ramp</h1>
+<p>Date: 2026-10-14 · Status: <strong>twelve consecutive months, hourly bars,
+stated assumptions.</strong> The window-picking antidote to notes 004–007: all of
+2023, January to December, unconditional hold plus the p90/p10 timed rule
+from note 007 — same legs, fees, and fills throughout, so the year decides
+between them instead of any quarter.</p>
+<h2 id="question">Question</h2>
+<p>Notes 004–007 chose their windows (bull quarter, bear quarter, both
+halves). Does the carry thesis survive a whole year it did not get to
+choose — and does timing earn its turnover over twelve months?</p>
+<h2 id="dataset-and-method">Dataset and method</h2>
+<ul>
+<li>Binance public archive, 36 slices pinned by SHA-256 in
+  <code>research/scripts/carry_008.py</code>: 1,095 funding payments plus 8,759
+  paired hourly bars. Pairing is by timestamp, not position: March carries
+  one perp-only bar (the 2023-03-24 spot halt), dropped and disclosed —
+  the script asserts at most a handful of unpairable bars and reports the
+  count (1).</li>
+<li>Two provenance upgrades over notes 004–007, both forced by findings:
+  pins cover the extracted CSV bytes, not the zip container (the CDN
+  re-packages identical CSVs into byte-different zips — observed on one
+  file across three downloads with identical content), and every file
+  asserts its calendar row count beside its hash (spot files carry no
+  header while perp/funding do — found the hard way, documented in code).</li>
+<li>Unconditional hold over the full year ($20 in fees). Timed p90/p10 over
+  the same bars with January doubling as the 720h warmup. Same $10k legs,
+  5 bps taker, fills at closes, bronze labeling throughout.</li>
+</ul>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Measure</th>
+<th>Unconditional hold</th>
+<th>Timed p90/p10</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Round trips (fills)</td>
+<td>1 open + 1 close ($20)</td>
+<td>~12 (24 fills, $240)</td>
+</tr>
+<tr>
+<td>Bars open</td>
+<td>all 8,759</td>
+<td>1,837 (23%)</td>
+</tr>
+<tr>
+<td>Funding collected</td>
+<td>$786.57</td>
+<td>$323.44 (41%)</td>
+</tr>
+<tr>
+<td>Basis drift PnL</td>
+<td>−$20.02</td>
+<td>+$158.04</td>
+</tr>
+<tr>
+<td>Net, 365 days on $20,000</td>
+<td><strong>+$746.55 (+3.73%)</strong></td>
+<td><strong>+$241.48 (+1.21%)</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Funding by month ($): Jan 80.00 · Feb 69.91 · Mar 52.44 · Apr 45.13 ·
+May 51.29 · Jun 60.29 · Jul 56.28 · Aug 53.89 · Sep 9.74 · Oct 37.03 ·
+Nov 101.84 · Dec 168.72. September — 33 of 90 payments negative — is the
+year's dead month; November–December, zero negatives, is where the year
+was made. Spot ran $16,529.67 → $42,283.58 across the window.</p>
+<h2 id="reading">Reading</h2>
+<p>Three facts that end the window debate. First, the unconditional hold
+compounds across regimes: eleven of twelve months paid, September cost
+little, and the year cleared 3.7% after all stated costs — the carry
+thesis survives contact with a year nobody chose. Second, timing helped
+drift again (+$158 vs −$20) and lost again (−$505 of gap): twelve careful
+turns still cost more than the selectivity they bought, at $20 a turn.
+Third, the fee mechanism is now visible across four studies: turnover is
+the only variable that ever decides the sign. The trilogy's moral holds
+at twelve months: timing is real edge on drift and negative edge after
+turnover, and no band has yet been both selective and cheap.</p>
+<p>What would strengthen or overturn this: maker fills where the book
+supports them (the fee floor remains the entire game); sizing by
+conviction; borrowing-inclusive inverse positions for negative-funding
+regimes; and the live-captured version, where fills stop being assumed.</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">python3 research/scripts/carry_008.py --data-dir /tmp/carry008
+</code></pre>
+<p>Thirty-six CSV content hashes plus calendar row counts pinned in the
+script, refused on any mismatch — verified by a from-scratch rerun with
+identical figures.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/008-full-year-carry.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns. Nothing here is for sale.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

@@ -29,6 +29,8 @@ RESEARCH = [
      "Drift -$53 to +$255, fees $40 to $3,260; selectivity dies on turnover."),
     ("007-band-sensitivity.md", "Note 007", "Wider bands bleed slower",
      "Five bands, one gradient: turnover dominates at every width."),
+    ("008-full-year-carry.md", "Note 008", "A full year of carry",
+     "+$746.55 unconditional vs +$241.48 timed; no chosen windows."),
 ]
 
 # (filename, nav label, page title, description)
