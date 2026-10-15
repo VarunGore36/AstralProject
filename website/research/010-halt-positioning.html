@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Positioning through the halt — Astral Project</title>
+  <meta name="description" content="OI flushed -7.4% a day early; ratio flipped 0.70 to 0.94 while dark." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="../docs/normalized-schema.html">Schema</a>
+        <a href="../docs/replay-design.html">Replay</a>
+        <a href="../docs/cross-machine-repro.html">Repro</a>
+        <a href="../docs/soak-runbook.html">Soak</a>
+        <a href="../docs/execution-model.html">Fills</a>
+        <a href="../docs/audit-2026-10-06.html">Audit</a>
+        <a href="../docs/failure-policy.html">Policy</a>
+        <a href="../docs/benchmark-harness.html">Bench</a>
+        <a href="../docs/status-2026-10-10.html">Status</a>
+        <a href="../docs/status-2026-10-12.html">Status ✦</a>
+        <a href="../docs/streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/010-halt-positioning.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-010-positioning-saw-the-flush-then-flipped-while-spot-was-dark">Research note 010: positioning saw the flush, then flipped while spot was dark</h1>
+<p>Date: 2026-10-15 · Status: <strong>seven days, 5-minute metrics, stated ratios.</strong>
+The positioning study the strategy flagged on day one and never ran: open
+interest plus account long/short ratios around the 2023-03-24 spot halt
+(matching-engine bug, ~11:00–13:00 UTC; perps never stopped). Same
+provenance discipline as the carry series, smaller data.</p>
+<h2 id="question">Question</h2>
+<p>Did positioning anticipate the halt-week stress, and what did it do while
+spot was dark — orderly hedging, or a flip?</p>
+<h2 id="dataset-and-method">Dataset and method</h2>
+<ul>
+<li>Seven daily metrics slices (2023-03-20..26), 288 five-minute rows each:
+  <code>sum_open_interest</code> (BTC), <code>count_long_short_ratio</code> (accounts, equal-
+  weighted — the note-002 dust caveat applies: one dust account counts
+  like one whale), top-trader ratios for the smart-money check, plus
+  March hourly closes for price context. Nine archive SHAs pinned in
+  <code>research/scripts/positioning_010.py</code> (stdlib only, one command); the
+  two klines pins match note 008's verified pins for the same files.</li>
+<li>Ratios are long÷short account counts: below 1.0 means short-heavy books.</li>
+</ul>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Day</th>
+<th>OI open → close (change)</th>
+<th>L/S open → close, min/max</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mar 20</td>
+<td>111,990 → 111,212 (−779)</td>
+<td>0.77 → 0.77, 0.69/0.88</td>
+</tr>
+<tr>
+<td>Mar 21</td>
+<td>111,130 → 110,509 (−621)</td>
+<td>0.77 → 0.73, 0.67/0.83</td>
+</tr>
+<tr>
+<td>Mar 22</td>
+<td>110,480 → 102,303 (−8,177)</td>
+<td>0.73 → 0.85, 0.69/0.86</td>
+</tr>
+<tr>
+<td>Mar 23</td>
+<td>102,326 → 103,900 (+1,574)</td>
+<td>0.85 → 0.70, 0.61/0.88</td>
+</tr>
+<tr>
+<td>Mar 24 (halt)</td>
+<td>104,107 → 98,060 (−6,048)</td>
+<td>0.70 → 0.94, 0.70/0.94</td>
+</tr>
+<tr>
+<td>Mar 25</td>
+<td>98,122 → 97,209 (−912)</td>
+<td>0.94 → 0.94, 0.89/0.97</td>
+</tr>
+<tr>
+<td>Mar 26</td>
+<td>97,234 → 102,629 (+5,396)</td>
+<td>0.94 → 0.83, 0.83/0.94</td>
+</tr>
+</tbody>
+</table>
+<p>Midday closes: Mar 22 $28,220 → Mar 23 $27,470 → Mar 24 $28,080 (spot).
+On the halt day itself, top-trader ratios tracked the crowd ratio tick
+for tick (0.68 → 0.96) — no smart-money divergence anywhere in the week.</p>
+<h2 id="reading">Reading</h2>
+<p>Three facts, one non-finding. First, the flush preceded the halt: −8,177
+BTC of open interest (−7.4%) left on Mar 22 during the selloff, the
+largest daily move of the week — positioning de-risked a full day before
+the matching engine broke. Whether it saw anything coming or simply
+reacted to price is indistinguishable here, and the note does not pretend
+otherwise. Second, the flip happened while spot was dark: the account
+ratio climbed 0.70 → 0.94 through Mar 24, including an intraday OI dip to
+103,192 around the halt window itself — shorts covered (or longs added)
+into a tape that was not printing. Venue-halting while the parallel market
+stays open does not freeze positioning; it relocates it. Third, the null:
+top traders moved with the crowd all week, which bounds what the ratio
+series can claim — it measures the crowd, including its dust, and the
+crowd is all it measures.</p>
+<p>What would strengthen or overturn this: notional-weighted positioning
+(the dust caveat, answered with size data); liquidation prints around the
+flush (no sanctioned archive carries them — checked, both monthly and
+daily paths 404); the same week on a second venue; and funding alongside
+(negative prints during the flush would complete the squeeze picture).</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">python3 research/scripts/positioning_010.py --data-dir /tmp/pos010
+</code></pre>
+<p>Nine archive SHA-256 hashes pinned in the script, refused on any mismatch
+— verified by a from-scratch rerun with identical figures.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/010-halt-positioning.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns. Nothing here is for sale.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
