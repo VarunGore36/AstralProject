@@ -95,12 +95,7 @@ pub fn simulate(
     fee_bps: u32,
     events: &[MarketEvent],
 ) -> Result<OrderOutcome, ExecError> {
-    if order.price.raw() <= 0 || order.quantity.raw() <= 0 {
-        return Err(ExecError::InvalidOrder(format!(
-            "{} x {}",
-            order.price, order.quantity
-        )));
-    }
+    valid_order(order)?;
 
     for event in events {
         match event {
@@ -114,14 +109,10 @@ pub fn simulate(
                 // never fill: a fill needs a real counterparty trading a real
                 // size at a real price. Skipped, not filled and not fatal —
                 // the stream may still hold evidence.
-                if print.price.raw() <= 0 || print.quantity.raw() <= 0 {
+                if !is_sound(print.price, print.quantity) {
                     continue;
                 }
-                let through = match order.side {
-                    Side::Buy => print.price.raw() <= order.price.raw(),
-                    Side::Sell => print.price.raw() >= order.price.raw(),
-                };
-                if through {
+                if is_through(order.side, order.price, print.price) {
                     let notional = order
                         .price
                         .checked_mul(order.quantity)
@@ -140,6 +131,112 @@ pub fn simulate(
     Ok(OrderOutcome::Unfilled {
         reason: UnfilledReason::NoThroughPrint,
     })
+}
+
+fn valid_order(order: &LimitOrder) -> Result<(), ExecError> {
+    if order.price.raw() <= 0 || order.quantity.raw() <= 0 {
+        return Err(ExecError::InvalidOrder(format!(
+            "{} x {}",
+            order.price, order.quantity
+        )));
+    }
+    Ok(())
+}
+
+fn is_sound(price: Fixed, quantity: Fixed) -> bool {
+    price.raw() > 0 && quantity.raw() > 0
+}
+
+fn is_through(side: Side, limit: Fixed, print: Fixed) -> bool {
+    match side {
+        Side::Buy => print.raw() <= limit.raw(),
+        Side::Sell => print.raw() >= limit.raw(),
+    }
+}
+
+/// Simulate one resting limit order over millisecond-batched prints.
+///
+/// Same rules as `simulate`, except consecutive prints sharing a venue
+/// millisecond evaluate as one simultaneous batch: the order fills iff any
+/// sound print in the batch trades through, citing the earliest such print.
+/// Prints without venue time form singleton batches — arrival order is all
+/// the evidence there is. Gaps flush the pending batch, then void.
+///
+/// This exists to prove simultaneity immaterial for v1, not to change
+/// outcomes: the first through-print in stream order is always the earliest
+/// through-print of its batch, so verdict, price, fee, and cited print all
+/// match `simulate` exactly (the equivalence test enforces it). Tier C
+/// (partial fills, queue position) is where batching will genuinely matter.
+pub fn simulate_batched(
+    order: &LimitOrder,
+    fee_bps: u32,
+    events: &[TimedEvent],
+) -> Result<OrderOutcome, ExecError> {
+    valid_order(order)?;
+
+    let mut batch: Vec<&TimedPrint> = Vec::new();
+    let mut batch_key: Option<i64> = None;
+    for event in events {
+        match event {
+            TimedEvent::Gap => {
+                if let Some(outcome) = fill_from_batch(order, fee_bps, &batch)? {
+                    return Ok(outcome);
+                }
+                return Ok(OrderOutcome::Unfilled {
+                    reason: UnfilledReason::VoidedByGap,
+                });
+            }
+            TimedEvent::Print(print) => {
+                // Venue milliseconds; arrival order inside the batch is kept
+                // (and cited), but no claim about true execution order sneaks in.
+                let key = print.ts_exchange_ns.map(|ns| ns.div_euclid(1_000_000));
+                if batch_key.is_some() && key == batch_key {
+                    batch.push(print);
+                    continue;
+                }
+                if let Some(outcome) = fill_from_batch(order, fee_bps, &batch)? {
+                    return Ok(outcome);
+                }
+                batch.clear();
+                batch.push(print);
+                batch_key = key;
+            }
+        }
+    }
+    if let Some(outcome) = fill_from_batch(order, fee_bps, &batch)? {
+        return Ok(outcome);
+    }
+
+    Ok(OrderOutcome::Unfilled {
+        reason: UnfilledReason::NoThroughPrint,
+    })
+}
+
+/// The batch rule, shared shape with the streaming rule: first sound
+/// through-print in batch (stream) order fills at the limit price.
+fn fill_from_batch(
+    order: &LimitOrder,
+    fee_bps: u32,
+    batch: &[&TimedPrint],
+) -> Result<Option<OrderOutcome>, ExecError> {
+    for print in batch {
+        if !is_sound(print.price, print.quantity) {
+            continue;
+        }
+        if is_through(order.side, order.price, print.price) {
+            let notional = order
+                .price
+                .checked_mul(order.quantity)
+                .ok_or(ExecError::ArithmeticOverflow)?;
+            return Ok(Some(OrderOutcome::Filled {
+                fill_price: order.price,
+                fee: maker_fee(notional, fee_bps)?,
+                slippage: Fixed::ZERO,
+                print_seq: print.seq,
+            }));
+        }
+    }
+    Ok(None)
 }
 
 /// Maker fee on a notional at `fee_bps` basis points, rounded half away
@@ -290,15 +387,17 @@ pub fn probe_capture(
     })
 }
 
-/// A trade print with its socket timestamp, for post-fill measurement.
-/// `ts_socket_ns` is transport time (when this machine saw the print), the
-/// same clock the recorder stamps on every record.
+/// A trade print with both clocks. `ts_socket_ns` is transport time (when
+/// this machine saw the print); `ts_exchange_ns` is venue time when the
+/// payload carries it (None prints carry nothing checkable and stay
+/// singletons in batched evaluation — never borrowing a neighbor's clock).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct TimedPrint {
     pub seq: u64,
     pub price: Fixed,
     pub quantity: Fixed,
     pub ts_socket_ns: i64,
+    pub ts_exchange_ns: Option<i64>,
 }
 
 /// Timed replay output in stream order. Gaps void live orders in `simulate`
@@ -455,6 +554,7 @@ impl astra_replay::Strategy for TimedCollector {
             price: event.trade.price,
             quantity: event.trade.quantity,
             ts_socket_ns: event.ts_socket.unix_nanos(),
+            ts_exchange_ns: event.ts_exchange.map(|ts| ts.unix_nanos()),
         }));
         self.trades += 1;
     }
@@ -878,6 +978,7 @@ mod tests {
             price: px.parse().unwrap(),
             quantity: price("1"),
             ts_socket_ns: at_ns,
+            ts_exchange_ns: None,
         })
     }
 
@@ -1012,5 +1113,145 @@ mod tests {
         };
         let text = format_markout_report(&unfilled, &[SECOND]);
         assert!(text.contains("markout     no-fill-no-markout"), "{text}");
+    }
+
+    /// Batching groups consecutive same-venue-millisecond prints; everything
+    /// else (gaps, singletons, stream order) flows through unchanged.
+    fn batched_events(specs: &[(u64, &str, Option<i64>)]) -> (Vec<MarketEvent>, Vec<TimedEvent>) {
+        let mut untimed = Vec::with_capacity(specs.len());
+        let mut timed = Vec::with_capacity(specs.len());
+        for (seq, px, ts_ms) in specs {
+            let parsed: Fixed = px.parse().unwrap();
+            untimed.push(MarketEvent::Print(Print {
+                seq: *seq,
+                price: parsed,
+                quantity: price("1"),
+            }));
+            timed.push(TimedEvent::Print(TimedPrint {
+                seq: *seq,
+                price: parsed,
+                quantity: price("1"),
+                ts_socket_ns: T0 + *seq as i64,
+                ts_exchange_ns: ts_ms.map(|ms| ms * 1_000_000),
+            }));
+        }
+        (untimed, timed)
+    }
+
+    #[test]
+    fn batching_agrees_with_streaming_on_torture_shapes() {
+        // Through-print last in its millisecond, corrupt prints leading the
+        // batch, timeless prints between stamped ones, gaps splitting
+        // milliseconds: every adversarial ordering must still agree exactly —
+        // verdict, price, fee, and cited print alike.
+        let cases: &[Vec<(u64, &str, Option<i64>)>] = &[
+            vec![
+                (0, "101", Some(100)),
+                (1, "99", Some(100)),
+                (2, "98", Some(100)),
+            ],
+            vec![
+                (0, "0", Some(100)),
+                (1, "-5", Some(100)),
+                (2, "99", Some(100)),
+            ],
+            vec![(0, "101", None), (1, "99", Some(100)), (2, "98", None)],
+            vec![
+                (0, "99", Some(100)),
+                (1, "101", Some(200)),
+                (2, "98", Some(200)),
+            ],
+            vec![(0, "105", Some(100)), (1, "106", Some(100))],
+        ];
+        for events in cases {
+            let (untimed, timed) = batched_events(events);
+            for side in [Side::Buy, Side::Sell] {
+                let order = LimitOrder {
+                    side,
+                    price: price("100"),
+                    quantity: price("1"),
+                };
+                assert_eq!(
+                    simulate(&order, 5, &untimed),
+                    simulate_batched(&order, 5, &timed),
+                    "side {side:?} events {events:?}"
+                );
+            }
+        }
+
+        // A gap voids mid-batch the same way it voids mid-stream.
+        let (mut untimed, mut timed) =
+            batched_events(&[(0, "101", Some(100)), (1, "99", Some(100))]);
+        untimed.push(MarketEvent::Gap);
+        timed.push(TimedEvent::Gap);
+        let order = buy_at("100");
+        assert_eq!(
+            simulate(&order, 5, &untimed),
+            simulate_batched(&order, 5, &timed)
+        );
+    }
+
+    #[test]
+    fn batching_matches_streaming_on_thousands_of_seeded_streams() {
+        // Fixed-seed sweep over adversarial shapes: clustered milliseconds,
+        // missing venue clocks, corrupt prints, gaps, both sides. Full
+        // outcome equality (not just the verdict) on every stream.
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let prices = ["99", "100", "101", "0", "-3"];
+        for _ in 0..4096 {
+            let len = 1 + (next() % 6) as usize;
+            let mut specs = Vec::with_capacity(len);
+            let mut seq = 0u64;
+            for _ in 0..len {
+                let roll = next() % 16;
+                if roll == 0 {
+                    specs.push((seq, "101", Some(100)));
+                    seq += 1;
+                    specs.push((seq, "99", Some(100)));
+                    seq += 1;
+                    continue;
+                }
+                if roll == 1 {
+                    specs.push((seq, "100", None));
+                    seq += 1;
+                    continue;
+                }
+                if roll == 2 {
+                    specs.push((seq, "101", Some(100 + (next() % 3) as i64)));
+                    seq += 1;
+                    continue;
+                }
+                let px = prices[(next() % prices.len() as u64) as usize];
+                let stamped = next() % 4 != 0;
+                specs.push((seq, px, stamped.then_some(100 + (next() % 3) as i64)));
+                seq += 1;
+            }
+            let (mut untimed, mut timed) = batched_events(&specs);
+            if next() % 3 == 0 {
+                untimed.push(MarketEvent::Gap);
+                timed.push(TimedEvent::Gap);
+                let (untimed_tail, timed_tail) = batched_events(&[(seq, "99", Some(200))]);
+                untimed.extend(untimed_tail);
+                timed.extend(timed_tail);
+            }
+            for side in [Side::Buy, Side::Sell] {
+                let order = LimitOrder {
+                    side,
+                    price: price("100"),
+                    quantity: price("1"),
+                };
+                assert_eq!(
+                    simulate(&order, 5, &untimed),
+                    simulate_batched(&order, 5, &timed),
+                    "side {side:?}"
+                );
+            }
+        }
     }
 }

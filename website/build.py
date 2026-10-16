@@ -43,6 +43,8 @@ RESEARCH = [
      "+0.49 at 7x flow; gradient replicates; session split unresolved."),
     ("014-luna-memory.md", "Note 014", "Memory strengthens with stress",
      "Calm +0.36, SVB +0.49, Luna +0.62; sessions uniform throughout."),
+    ("015-simultaneity.md", "Note 015", "Simultaneity immaterial for v1",
+     "Batched vs streaming fills agree on 4,096 streams; Tier C flagged."),
 ]
 
 # (filename, nav label, page title, description)

@@ -69,6 +69,21 @@ This distribution is the seed of the calibration product: it measures the
 gap between simulation and reality without claiming to close it. Money
 stays `Fixed`; markout bps are analytics floats by explicit design.
 
+## Simultaneity within the millisecond (proven immaterial for v1)
+
+Roughly half of all prints share their millisecond with a neighbor, and
+replay order inside the millisecond is arrival order — venue-opaque, not
+execution order. `simulate_batched` evaluates consecutive same-venue-
+millisecond prints as one simultaneous batch (fills iff any sound print
+trades through, citing the earliest) so the question is answered by code
+rather than asserted in prose: batched and streaming simulation agree on
+every outcome — verdict, price, fee, and cited print — over directed
+torture shapes plus 4,096 seeded adversarial streams. Prints without venue
+time form singleton batches; arrival order there is all the evidence
+there is. Partial fills and queue position (Tier C) are where batching
+will genuinely matter; until then the cited print stays arrival-first and
+says so.
+
 ## Acceptance
 
 - Unit tests on synthetic print sequences: through-print fills, touch-without-
