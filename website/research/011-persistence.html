@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Imbalance persists equally — Astral Project</title>
+  <meta name="description" content="Lag-1 r=+0.36 overall, +0.34 in every session; memory has one level." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="../docs/normalized-schema.html">Schema</a>
+        <a href="../docs/replay-design.html">Replay</a>
+        <a href="../docs/cross-machine-repro.html">Repro</a>
+        <a href="../docs/soak-runbook.html">Soak</a>
+        <a href="../docs/execution-model.html">Fills</a>
+        <a href="../docs/audit-2026-10-06.html">Audit</a>
+        <a href="../docs/failure-policy.html">Policy</a>
+        <a href="../docs/benchmark-harness.html">Bench</a>
+        <a href="../docs/status-2026-10-10.html">Status</a>
+        <a href="../docs/status-2026-10-12.html">Status ✦</a>
+        <a href="../docs/streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/011-persistence.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-011-imbalance-persists-equally-in-every-session">Research note 011: imbalance persists, equally, in every session</h1>
+<p>Date: 2026-10-16 · Status: <strong>one week, hourly buckets, stated pairs.</strong>
+Answers the persistence half of note 009's deferred questions: spot
+taker-buy share varies by session — but does an imbalanced hour predict
+the next one, and does that memory itself vary by session?</p>
+<h2 id="question">Question</h2>
+<p>Note 009 found spot direction varying by session (43.9% → 37.6%
+taker-buy, Asia to US) while perp holds still. Two readings compete: each
+session has its own flow dynamics, or one tape-wide memory wearing three
+different levels. Lag-1 autocorrelation of hourly taker-buy share,
+overall and per session, separates them.</p>
+<h2 id="dataset-and-method">Dataset and method</h2>
+<ul>
+<li>The same seven spot aggTrades slices behind note 009 (2024-01-15..21),
+  repinned here (identical pins, re-verified on download): 7,553,902
+  prints bucketed into 168 UTC hours, overall taker-buy 40.3%.</li>
+<li>Pairs are consecutive hours with both hours inside one session
+  (49 pairs each; 167 overall including boundaries). No cross-boundary
+  pairs — midnight effects are not smuggled into any session.</li>
+<li>Pearson r on shares plus r on imbalance magnitude (|share − 0.5|),
+  each with 1/√n beside it. Correlation is descriptive here, not a model.</li>
+</ul>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Pairs</th>
+<th>r (share)</th>
+<th>r (magnitude)</th>
+<th>±1 SE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>All consecutive hours</td>
+<td>167</td>
+<td>+0.36</td>
+<td>+0.32</td>
+<td>0.08</td>
+</tr>
+<tr>
+<td>Asia 00–08</td>
+<td>49</td>
+<td>+0.34</td>
+<td>+0.26</td>
+<td>0.14</td>
+</tr>
+<tr>
+<td>EU 08–16</td>
+<td>49</td>
+<td>+0.34</td>
+<td>+0.31</td>
+<td>0.14</td>
+</tr>
+<tr>
+<td>US 16–24</td>
+<td>49</td>
+<td>+0.34</td>
+<td>+0.27</td>
+<td>0.14</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reading">Reading</h2>
+<p>Two facts that jointly retire the question. First, memory is real and
+modest: +0.36 overall against a 0.08 standard error — an imbalanced hour
+leans the same way about a third of the time beyond chance, on this week,
+at this scale. Second, memory does not vary by session within error: the
+three sessions read identically while their levels differ by six points.
+Direction varies by session (note 009 stands); memory does not. The tape
+has one persistence mechanism wearing three different levels — the
+simplest consistent story is a single intraday carryover process (open
+positions, working orders, Asia-to-US handoff) modulated by who is awake,
+not three different microstructures.</p>
+<p>What would strengthen or overturn this: more weeks (49 pairs per session
+is thin — the error bars admit anything from +0.2 to +0.5); the same cut
+on perp (balanced flow may forget faster); magnitude-conditioned splits
+(does persistence concentrate in strongly imbalanced hours?); and the
+live-captured version, where hours stop being archive buckets.</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">python3 research/scripts/persist_011.py --data-dir /tmp/persist011
+</code></pre>
+<p>Seven CSV content hashes pinned in the script (the spot pins behind note
+009), refused on any mismatch — verified by a from-scratch rerun with
+identical figures.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/011-persistence.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns. Nothing here is for sale.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

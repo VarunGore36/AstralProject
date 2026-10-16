@@ -35,6 +35,8 @@ RESEARCH = [
      "US carries 42-44%; spot directional, perp balanced; both batch."),
     ("010-halt-positioning.md", "Note 010", "Positioning through the halt",
      "OI flushed -7.4% a day early; ratio flipped 0.70 to 0.94 while dark."),
+    ("011-persistence.md", "Note 011", "Imbalance persists equally",
+     "Lag-1 r=+0.36 overall, +0.34 in every session; memory has one level."),
 ]
 
 # (filename, nav label, page title, description)
