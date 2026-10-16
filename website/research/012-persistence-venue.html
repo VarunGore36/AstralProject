@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Memory lives in imbalance — Astral Project</title>
+  <meta name="description" content="High-mag hours +0.32, quiet +0.03; perp +0.12 forgets faster." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="../docs/normalized-schema.html">Schema</a>
+        <a href="../docs/replay-design.html">Replay</a>
+        <a href="../docs/cross-machine-repro.html">Repro</a>
+        <a href="../docs/soak-runbook.html">Soak</a>
+        <a href="../docs/execution-model.html">Fills</a>
+        <a href="../docs/audit-2026-10-06.html">Audit</a>
+        <a href="../docs/failure-policy.html">Policy</a>
+        <a href="../docs/benchmark-harness.html">Bench</a>
+        <a href="../docs/status-2026-10-10.html">Status</a>
+        <a href="../docs/status-2026-10-12.html">Status ✦</a>
+        <a href="../docs/streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/012-persistence-venue.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-012-memory-lives-in-the-imbalance-and-spot-remembers-best">Research note 012: memory lives in the imbalance, and spot remembers best</h1>
+<p>Date: 2026-10-16 · Status: <strong>one week per venue, hourly buckets, stated
+pairs.</strong> Closes both halves note 011 deferred: the same lag-1 cut on perp,
+and magnitude-conditioned splits on each tape (pairs starting from
+above/below-median |share − 0.5| hours).</p>
+<h2 id="question">Question</h2>
+<p>Note 011 found spot imbalance memory identical across sessions. Two
+refinements compete for the mechanism: balanced perp flow may forget
+faster, and persistence may concentrate where imbalance is strongest. Both
+are tested on the note-009 weeks (spot and perp aggTrades, 2024-01-15..21).</p>
+<h2 id="dataset-and-method">Dataset and method</h2>
+<ul>
+<li>Fourteen daily slices pinned by extracted-CSV SHA-256 in
+  <code>research/scripts/persist_012.py</code> — the exact pins behind note 009 for
+  the same files, re-verified on download here. Stdlib only, one command.</li>
+<li>Lag-1 Pearson on hourly taker-buy shares overall, plus first-hour
+  magnitude splits (median cut, ~84/83 pairs each). Standard errors beside
+  every r; the low-n splits are read with their error bars, not past them.</li>
+</ul>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Pairs</th>
+<th>r</th>
+<th>±1 SE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Spot, all hours</td>
+<td>167</td>
+<td>+0.36</td>
+<td>0.08</td>
+</tr>
+<tr>
+<td>Spot, high-magnitude first</td>
+<td>84</td>
+<td>+0.32</td>
+<td>0.11</td>
+</tr>
+<tr>
+<td>Spot, low-magnitude first</td>
+<td>83</td>
+<td>+0.03</td>
+<td>0.11</td>
+</tr>
+<tr>
+<td>Perp, all hours</td>
+<td>167</td>
+<td>+0.12</td>
+<td>0.08</td>
+</tr>
+<tr>
+<td>Perp, high-magnitude first</td>
+<td>84</td>
+<td>+0.17</td>
+<td>0.11</td>
+</tr>
+<tr>
+<td>Perp, low-magnitude first</td>
+<td>83</td>
+<td>−0.05</td>
+<td>0.11</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reading">Reading</h2>
+<p>Two facts that locate the memory. First, persistence concentrates
+entirely in imbalance: high-magnitude hours carry the full +0.32 while
+quiet hours read +0.03 — white noise with a standard error attached.
+Whatever carries over is carried by conviction hours, not by the tape in
+general. Second, balanced flow nearly forgets: perp manages +0.12 overall
+against a 0.08 error bar, a third of spot's memory with the same
+magnitude gradient (+0.17 vs −0.05). Combined with note 009's flat 50%
+perp sessions, the venue picture is now complete — perp flow is bigger,
+smoother, and more forgetful; spot flow is noisier, directional, and
+remembers where it was loud. A signal built on persistence belongs on
+spot, sized by conviction, and nowhere else in this dataset.</p>
+<p>What would strengthen or overturn this: more weeks (84-pair splits are
+thin — the high/low gap on spot clears its bars, on perp it does not);
+the same cut in a stress week (does memory spike when it matters?);
+maker-side persistence (resting-order imbalance rather than taker prints);
+and the live-captured version, where hours stop being archive buckets.</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">python3 research/scripts/persist_012.py --data-dir /tmp/persist012
+</code></pre>
+<p>Fourteen CSV content hashes pinned in the script (the note-009 pins),
+refused on any mismatch — verified by a from-scratch rerun with
+identical figures.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/012-persistence-venue.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns. Nothing here is for sale.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
