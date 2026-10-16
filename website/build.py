@@ -39,6 +39,8 @@ RESEARCH = [
      "Lag-1 r=+0.36 overall, +0.34 in every session; memory has one level."),
     ("012-persistence-venue.md", "Note 012", "Memory lives in imbalance",
      "High-mag hours +0.32, quiet +0.03; perp +0.12 forgets faster."),
+    ("013-stress-memory.md", "Note 013", "Memory survives the stress week",
+     "+0.49 at 7x flow; gradient replicates; session split unresolved."),
 ]
 
 # (filename, nav label, page title, description)

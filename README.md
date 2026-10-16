@@ -843,6 +843,7 @@ which equality broke).
 | Halt positioning, 5-min metrics | OI −7.4% the day before the Mar 2023 halt, ratio 0.70→0.94 while spot dark, top traders with the crowd; liquidation archives checked, absent | SUBSTANTIVE (single week) |
 | Imbalance persistence, hourly | Lag-1 r=+0.36 overall and +0.34 in every session; direction varies by session, memory does not | SUBSTANTIVE (single week) |
 | Persistence by venue and volume | Loud hours +0.32, quiet +0.03; perp +0.12 forgets faster; signals belong on spot, sized by conviction | SUBSTANTIVE (single week) |
+| Stress-week persistence | SVB week at 7× flow: r=+0.49, gradient replicates, session split unresolved; strengthening suggestive, persistence established | SUBSTANTIVE (single week) |
 | `import astra` without maturin | cdylib+rlib crate types keep tests green while `cargo build` produces an importable module (verified: parse/mul/clock/div0 live in Python 3.14) | IMPORTABLE |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |

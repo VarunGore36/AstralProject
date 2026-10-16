@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Memory survives the stress week — Astral Project</title>
+  <meta name="description" content="+0.49 at 7x flow; gradient replicates; session split unresolved." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="../docs/normalized-schema.html">Schema</a>
+        <a href="../docs/replay-design.html">Replay</a>
+        <a href="../docs/cross-machine-repro.html">Repro</a>
+        <a href="../docs/soak-runbook.html">Soak</a>
+        <a href="../docs/execution-model.html">Fills</a>
+        <a href="../docs/audit-2026-10-06.html">Audit</a>
+        <a href="../docs/failure-policy.html">Policy</a>
+        <a href="../docs/benchmark-harness.html">Bench</a>
+        <a href="../docs/status-2026-10-10.html">Status</a>
+        <a href="../docs/status-2026-10-12.html">Status ✦</a>
+        <a href="../docs/streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/013-stress-memory.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-013-memory-survives-the-stress-week-modestly-stronger">Research note 013: memory survives the stress week, modestly stronger</h1>
+<p>Date: 2026-10-16 · Status: <strong>one crisis week, hourly buckets, stated
+pairs.</strong> The stress test notes 011–012 left open: SVB collapse (Mar 10)
+plus USDC-depeg weekend, ~54M prints at ~7× January's flow. Does
+imbalance memory strengthen when it matters, and does the session split
+survive contact with a crisis?</p>
+<h2 id="question">Question</h2>
+<p>Calm-week memory (r=+0.36) could be a fair-weather artifact — microstructure
+that evaporates when flow multiplies and regimes break. Same lag-1 method
+over 2023-03-06..12, overall plus sessions plus magnitude splits.</p>
+<h2 id="dataset-and-method">Dataset and method</h2>
+<ul>
+<li>Seven daily spot aggTrades slices, 54,209,013 prints into 168 UTC
+  hours, overall taker-buy 50.2%. Pins are extracted-CSV SHA-256 in
+  <code>research/scripts/stress_013.py</code> (stdlib only, one command) — note the
+  discipline explicitly, because this round caught a real slip: zip-level
+  hashes were pasted where content hashes belong, and the script refused
+  them before any math ran.</li>
+<li>Identical pairs to note 011 (consecutive hours, same-session only,
+  median magnitude splits) so every number below compares directly.</li>
+</ul>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Calm week (011)</th>
+<th>Stress week (013)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>All consecutive hours</td>
+<td>+0.36 ± 0.08</td>
+<td>+0.49 ± 0.08</td>
+</tr>
+<tr>
+<td>Asia 00–08</td>
+<td>+0.34 ± 0.14</td>
+<td>+0.44 ± 0.14</td>
+</tr>
+<tr>
+<td>EU 08–16</td>
+<td>+0.34 ± 0.14</td>
+<td>+0.43 ± 0.14</td>
+</tr>
+<tr>
+<td>US 16–24</td>
+<td>+0.34 ± 0.14</td>
+<td>+0.60 ± 0.14</td>
+</tr>
+<tr>
+<td>High-magnitude first</td>
+<td>+0.32 ± 0.11</td>
+<td>+0.60 ± 0.11</td>
+</tr>
+<tr>
+<td>Low-magnitude first</td>
+<td>+0.03 ± 0.11</td>
+<td>+0.20 ± 0.11</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reading">Reading</h2>
+<p>Three facts with descending certainty. First, memory survives 7× flow:
++0.49 against 0.08 is unambiguously nonzero — the carryover process does
+not evaporate under stress. Second, the magnitude gradient replicates and
+steepens (+0.60/+0.20 vs +0.32/+0.03): conviction hours still carry
+everything, and in a crisis week even quiet hours lean slightly. Third —
+stated as unresolved, not as a finding — the session split does not
+replicate cleanly: the US reads +0.60 against +0.44/+0.43, but the gaps
+do not clear combined error bars, and neither does the +0.13 overall
+strengthening (+0.49 vs +0.36 at ~1.1 sigma). "Stronger under stress" is
+suggestive, not established; what is established is that memory persists
+at crisis volume with the same shape (magnitude-graded, session-flat
+within error).</p>
+<p>What would strengthen or overturn this: more stress weeks (one crisis is
+an anecdote with error bars — the honest unit here is still n=167 hours);
+the perp cut in stress (does balanced flow remember any better when it
+matters?); maker-side persistence; and the live-captured version, where
+hours stop being archive buckets.</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">python3 research/scripts/stress_013.py --data-dir /tmp/stress013
+</code></pre>
+<p>Seven CSV content hashes pinned in the script, refused on any mismatch —
+verified by a from-scratch rerun with identical figures.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/013-stress-memory.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns. Nothing here is for sale.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>
