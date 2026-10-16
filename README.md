@@ -846,6 +846,7 @@ which equality broke).
 | Stress-week persistence | SVB week at 7× flow: r=+0.49, gradient replicates, session split unresolved; strengthening suggestive, persistence established | SUBSTANTIVE (single week) |
 | Extinction-week persistence | Luna week: r=+0.62 overall, +0.75 loud hours; calm/SVB/Luna order monotonically; sessions uniform in all three | SUBSTANTIVE (single week) |
 | Fill simultaneity, proven | Batched vs streaming simulation agree on verdict, price, fee, and cited print over 4,096 adversarial streams; Tier C flagged as where it matters | PROVEN (engine property) |
+| Inverse carry, kindest month | Nov 2022 short-spot/long-perp: −$2.23 net at 0% borrow, deeper at every stated rate; carry is one-directional at retail size | SUBSTANTIVE (single month) |
 | `import astra` without maturin | cdylib+rlib crate types keep tests green while `cargo build` produces an importable module (verified: parse/mul/clock/div0 live in Python 3.14) | IMPORTABLE |
 | Book updates count applied events only | rejected and pre-snapshot events touch neither counter (they change nothing and carry no bad data); `errors` stays reserved for invalid levels | COUNTED |
 | Compare gated like every reader | `verify` checks both manifests (version plus venue counts) before comparing; the last blind reader now refuses torn inputs | GATED |

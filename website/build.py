@@ -45,6 +45,8 @@ RESEARCH = [
      "Calm +0.36, SVB +0.49, Luna +0.62; sessions uniform throughout."),
     ("015-simultaneity.md", "Note 015", "Simultaneity immaterial for v1",
      "Batched vs streaming fills agree on 4,096 streams; Tier C flagged."),
+    ("016-inverse-carry.md", "Note 016", "The inverse fails pre-borrow",
+     "-$2.23 at 0% borrow in the kindest month; carry is one-directional."),
 ]
 
 # (filename, nav label, page title, description)
