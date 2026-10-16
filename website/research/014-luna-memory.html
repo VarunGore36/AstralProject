@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Memory strengthens with stress — Astral Project</title>
+  <meta name="description" content="Calm +0.36, SVB +0.49, Luna +0.62; sessions uniform throughout." />
+  <meta name="theme-color" content="#05070c" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <meta property="og:image" content="https://astral-project-ruddy.vercel.app/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <link rel="stylesheet" href="../docs.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header scrolled" id="top">
+    <div class="wrap header-inner">
+      <a class="brand" href="../index.html" aria-label="Astral Project home">
+        <img class="brand-mark brand-logo" src="../logo.png" alt="Astral Project logo" width="26" height="26" />
+        <span class="brand-name">Astral <span class="brand-sub">Project</span></span>
+      </a>
+      <nav class="site-nav doc-nav" aria-label="Docs">
+        <a href="../docs/normalized-schema.html">Schema</a>
+        <a href="../docs/replay-design.html">Replay</a>
+        <a href="../docs/cross-machine-repro.html">Repro</a>
+        <a href="../docs/soak-runbook.html">Soak</a>
+        <a href="../docs/execution-model.html">Fills</a>
+        <a href="../docs/audit-2026-10-06.html">Audit</a>
+        <a href="../docs/failure-policy.html">Policy</a>
+        <a href="../docs/benchmark-harness.html">Bench</a>
+        <a href="../docs/status-2026-10-10.html">Status</a>
+        <a href="../docs/status-2026-10-12.html">Status ✦</a>
+        <a href="../docs/streaming-design.html">Stream</a>
+      </nav>
+      <a class="btn btn-ghost btn-small header-cta" href="https://github.com/VarunGore36/AstralProject/blob/main/research/014-luna-memory.md" target="_blank" rel="noopener">Source .md</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section doc-page" aria-labelledby="doc-title">
+      <div class="wrap narrow">
+        <p class="eyebrow reveal"><a href="../index.html#research">← Research</a></p>
+        <article class="doc-prose">
+<h1 id="research-note-014-memory-strengthens-with-stress-sessions-stay-uniform">Research note 014: memory strengthens with stress, sessions stay uniform</h1>
+<p>Date: 2026-10-16 · Status: <strong>one extinction week, hourly buckets, stated
+pairs.</strong> Second crisis datapoint for note 013's open question: Luna/UST
+death spiral (2022-05-08..14, BTC ~$35k→$26k), identical lag-1 method over
+hourly taker-buy shares — overall, per session, and split by first-hour
+magnitude.</p>
+<h2 id="question">Question</h2>
+<p>Note 013 found r=+0.49 in the SVB week against +0.36 calm — suggestive,
+not established. A second, harsher crisis decides whether the ordering
+(stress strengthens memory) replicates or was noise.</p>
+<h2 id="dataset-and-method">Dataset and method</h2>
+<ul>
+<li>Seven daily spot aggTrades slices, 13,960,241 prints into 168 UTC
+  hours, overall taker-buy 50.2% (balanced tape through a crash).
+  Identical pairs to notes 011/013 (consecutive hours, same-session
+  only, median magnitude splits). Pins are extracted-CSV SHA-256 in
+  <code>research/scripts/stress_014.py</code> (stdlib only, one command).</li>
+<li>Daily flow ramps mid-week (3.0M/3.3M prints May 11–12 vs ~1M on the
+  quiet days) — the stress is in the data, not assumed.</li>
+</ul>
+<h2 id="results">Results</h2>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Calm (011)</th>
+<th>SVB stress (013)</th>
+<th>Luna stress (014)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>All consecutive hours</td>
+<td>+0.36 ± 0.08</td>
+<td>+0.49 ± 0.08</td>
+<td>+0.62 ± 0.08</td>
+</tr>
+<tr>
+<td>Asia 00–08</td>
+<td>+0.34 ± 0.14</td>
+<td>+0.44 ± 0.14</td>
+<td>+0.67 ± 0.14</td>
+</tr>
+<tr>
+<td>EU 08–16</td>
+<td>+0.34 ± 0.14</td>
+<td>+0.43 ± 0.14</td>
+<td>+0.60 ± 0.14</td>
+</tr>
+<tr>
+<td>US 16–24</td>
+<td>+0.34 ± 0.14</td>
+<td>+0.60 ± 0.14</td>
+<td>+0.49 ± 0.14</td>
+</tr>
+<tr>
+<td>High-magnitude first</td>
+<td>+0.32 ± 0.11</td>
+<td>+0.60 ± 0.11</td>
+<td>+0.75 ± 0.11</td>
+</tr>
+<tr>
+<td>Low-magnitude first</td>
+<td>+0.03 ± 0.11</td>
+<td>+0.20 ± 0.11</td>
+<td>+0.29 ± 0.11</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reading">Reading</h2>
+<p>Three facts, one upgrade and one refusal. First, the ordering replicates:
+calm +0.36, SVB +0.49, Luna +0.62 — memory strengthens monotonically with
+stress across three independent weeks, and the Luna-vs-calm gap (+0.26 at
+~2.3 sigma) now clears the bar the SVB gap only approached. Second, the
+magnitude mechanism replicates with it: +0.75/+0.29 high/low, the same
+conviction-hours story at higher amplitude. Third, sessions refuse to rank:
+Asia reads highest (+0.67) and US lowest (+0.49) — the reverse of the SVB
+week — but no pairwise gap clears combined error bars, so the uniform
+reading from note 011 stands extended, not overturned: memory is
+session-flat within error in calm, SVB, and Luna weeks alike. The
+epicenter moved (US hours for SVB, Asia hours for Terra) while the
+uniformity did not — consistent with one tape-wide carryover process
+whose level, not whose memory, follows events.</p>
+<p>What would strengthen or overturn this: a third crisis (each additional
+week is another independent draw — the honest unit is still small); the
+perp cut in stress (does balanced flow remember any better when it
+matters?); maker-side persistence; and the live-captured version, where
+hours stop being archive buckets.</p>
+<h2 id="reproduce">Reproduce</h2>
+<pre><code class="language-sh">python3 research/scripts/stress_014.py --data-dir /tmp/stress014
+</code></pre>
+<p>Seven CSV content hashes pinned in the script, refused on any mismatch —
+verified by a from-scratch rerun with identical figures.</p>
+        </article>
+        <div class="oss-cta reveal">
+          <a class="btn btn-ghost" href="../index.html">← Back to site</a>
+          <a class="btn btn-ghost" href="https://github.com/VarunGore36/AstralProject/blob/main/research/014-luna-memory.md" target="_blank" rel="noopener">Source .md on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="brand-name">Astral Project</span>
+        <p>Open, reproducible measurement for crypto markets. Apache-2.0.</p>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <p>Historical research and simulation only. No execution, no trading, no capital — and no claims about returns. Nothing here is for sale.</p>
+    </div>
+  </footer>
+
+  <script src="../script.js" defer></script>
+</body>
+</html>

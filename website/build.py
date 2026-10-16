@@ -41,6 +41,8 @@ RESEARCH = [
      "High-mag hours +0.32, quiet +0.03; perp +0.12 forgets faster."),
     ("013-stress-memory.md", "Note 013", "Memory survives the stress week",
      "+0.49 at 7x flow; gradient replicates; session split unresolved."),
+    ("014-luna-memory.md", "Note 014", "Memory strengthens with stress",
+     "Calm +0.36, SVB +0.49, Luna +0.62; sessions uniform throughout."),
 ]
 
 # (filename, nav label, page title, description)
